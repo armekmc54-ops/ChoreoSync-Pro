@@ -1,0 +1,1918 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="utf-8">
+  <title>ChoreoSync Pro - Dirección Coreográfica y Sincronización en Tiempo Real</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#020617">
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <style type="text/tailwindcss">
+    .btn-act { @apply px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300 hover:bg-slate-700 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer select-none font-medium; }
+    .btn-act.active { @apply bg-violet-600 border-violet-400 text-white shadow-md shadow-violet-500/30; }
+    .btn-act.cyan-active { @apply bg-cyan-500 border-cyan-400 text-slate-950 font-bold shadow-md shadow-cyan-500/30; }
+    .btn-act.danger { @apply hover:bg-rose-950/60 hover:border-rose-700 hover:text-rose-300; }
+    .item-row { @apply flex items-center gap-1.5 p-1.5 rounded-lg border border-slate-800 bg-slate-950/70 mb-1.5 text-xs transition cursor-pointer hover:bg-slate-800/50; }
+    .item-row.selected { @apply border-violet-500 bg-slate-800 shadow-sm; }
+    .item-row input:not([type=color]), .item-row select { @apply bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-white outline-none focus:border-cyan-400 min-w-0; }
+  </style>
+  <style>
+    :root {
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      box-sizing: border-box;
+      color-scheme: dark;
+    }
+    html, body { height: 100%; margin: 0; padding: 0; background-color: #020617; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    canvas { touch-action: none; user-select: none; }
+    .view-dan #choreographer-only { display: none !important; }
+    .view-dan #dancer-simulator { display: block !important; }
+    #dancer-simulator { display: none; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #020617; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex flex-col h-screen overflow-hidden select-none">
+
+  <!-- CABECERA PRINCIPAL -->
+  <header class="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 bg-slate-900 border-b border-slate-800 z-20">
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-lg bg-gradient-to-tr from-violet-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-violet-500/25">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>
+        </div>
+        <span class="font-black text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-violet-400 via-cyan-300 to-emerald-400">
+          ChoreoSync <span class="text-white text-xs px-1.5 py-0.5 rounded bg-violet-600/30 border border-violet-500/40">PRO</span>
+        </span>
+      </div>
+
+      <!-- Selector de Modo: Coreógrafo vs Bailarín -->
+      <div class="flex bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+        <button id="btnModeDir" class="btn-act active">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          <span>Coreógrafo</span>
+        </button>
+        <button id="btnModeDan" class="btn-act">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Bailarín</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- CONTADOR GIGANTE EN PANTALLA -->
+    <div class="flex items-center justify-center flex-1 min-w-[200px]">
+      <div class="px-4 py-1 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center gap-2.5 shadow-inner">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+        <span id="bigCountDisplay" class="text-lg sm:text-2xl md:text-3xl font-black font-mono tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-400">
+          OCHO #1 | TIEMPO 1
+        </span>
+      </div>
+    </div>
+
+    <!-- Botones de Acción / Archivos -->
+    <div class="flex items-center gap-1.5 flex-wrap">
+      <button id="btnLiveRoom" class="btn-act border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/60" title="Sala en vivo para celulares">
+        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+        <span>Sala QR</span>
+      </button>
+
+      <span id="headerDirButtons" class="flex items-center gap-1.5">
+        <button id="btnExportJson" class="btn-act" title="Exportar coreografía a JSON">
+          <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span class="hidden sm:inline">Exportar .json</span>
+        </button>
+        <button id="btnImportJson" class="btn-act" title="Importar proyecto JSON">
+          <svg class="w-3.5 h-3.5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span class="hidden sm:inline">Importar .json</span>
+        </button>
+        <button id="btnUploadAudio" class="btn-act bg-violet-950/50 border-violet-500/40 text-violet-200" title="Cargar pista musical (.mp3, .wav, .m4a)">
+          <svg class="w-3.5 h-3.5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <span>Subir audio</span>
+        </button>
+        <button id="btnSynthAudio" class="btn-act" title="Metrónomo sintético a 120 BPM">
+          <span>Sintético 120 BPM</span>
+        </button>
+        <button id="btnResetDemo" class="btn-act danger" title="Restaurar coreografía demo">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          <span>Demo</span>
+        </button>
+      </span>
+    </div>
+
+    <!-- Inputs invisibles de archivos -->
+    <input id="inputAudioFile" type="file" accept="audio/*,.mp3,.wav,.m4a" class="hidden">
+    <input id="inputJsonFile" type="file" accept=".json,application/json" class="hidden">
+  </header>
+
+  <!-- CUERPO PRINCIPAL (ESPACIO DE TRABAJO CON PANELES REDIMENSIONABLES TIPO ADOBE AUDITION) -->
+  <main id="mainWorkspace" class="flex flex-1 min-h-0 overflow-hidden relative select-none">
+    
+    <!-- PANEL LATERAL DEL COREÓGRAFO (ANCHO AJUSTABLE) -->
+    <aside id="choreographer-only" style="width: 270px;" class="shrink-0 bg-slate-900 border-r border-slate-800 p-3 flex flex-col gap-3 overflow-y-auto relative z-10">
+      
+      <!-- Barra superior de gestión de paneles estilo Audition -->
+      <div class="flex items-center justify-between pb-1.5 border-b border-slate-800/80">
+        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+          <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+          <span>Herramientas</span>
+        </span>
+        <button id="btnSwapSections" class="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition text-[10px] flex items-center gap-1" title="Invertir orden de Bailarines y Formaciones">
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/></svg>
+          <span>Invertir</span>
+        </button>
+      </div>
+
+      <!-- SECCIÓN 1: BAILARINES -->
+      <div id="sectionDancersContainer" class="bg-slate-950/40 rounded-xl border border-slate-800/80 p-2.5">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-bold uppercase tracking-wider text-cyan-400">Bailarines</span>
+          <button id="btnAddDancer" class="px-2 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-white text-[11px] font-semibold transition">+ Añadir</button>
+        </div>
+        <div id="dancersList" class="flex flex-col gap-1 max-h-52 overflow-y-auto pr-0.5"></div>
+      </div>
+
+      <!-- SECCIÓN 2: FORMACIONES -->
+      <div id="sectionFormationsContainer" class="bg-slate-950/40 rounded-xl border border-slate-800/80 p-2.5">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-bold uppercase tracking-wider text-cyan-400">Formaciones</span>
+          <button id="btnAddFormation" class="px-2 py-0.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-semibold transition">+ Aquí</button>
+        </div>
+        <div class="text-[10px] text-slate-500 mb-1 flex justify-between px-1">
+          <span>Nombre</span>
+          <span>Hold ms · Trans ms</span>
+        </div>
+        <div id="formationsList" class="flex flex-col gap-1 max-h-52 overflow-y-auto pr-0.5"></div>
+      </div>
+
+      <!-- Tips Rápidos -->
+      <div class="mt-auto p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[10px] text-slate-400 leading-relaxed">
+        <p class="font-bold text-slate-300 mb-0.5">Controles Rápidos:</p>
+        <p>• Rueda del ratón = Zoom en figuras y escenario.<br>
+        • Arrastra el divisor para cambiar tamaño del panel.<br>
+        • Usa los botones de zoom en la barra de música.</p>
+      </div>
+    </aside>
+
+    <!-- DIVISOR VERTICAL PARA CAMBIAR ANCHO DEL PANEL LATERAL (SPLITTER) -->
+    <div id="splitterSidebar" class="w-1.5 hover:w-2 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-all z-20 shrink-0" title="Arrastra horizontalmente para cambiar el tamaño del panel de herramientas"></div>
+
+    <!-- ÁREA DEL ESCENARIO -->
+    <section class="flex-1 min-w-0 flex flex-col h-full overflow-hidden bg-slate-950 relative">
+      <!-- Barra superior sobre el escenario con controles de vista -->
+      <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-slate-900 border-b border-slate-800 z-10">
+        <div class="flex items-center gap-2">
+          <button id="btnMirror" class="btn-act" title="Girar 180° la perspectiva (desde adentro del escenario)">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="12 2 19 21 12 17 5 21 12 2"/></svg>
+            <span>Modo espejo 180°</span>
+          </button>
+          <button id="btnShowPaths" class="btn-act" title="Mostrar/ocultar rutas Bézier de todos los bailarines">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v3a3 3 0 0 0 3 3h6"/></svg>
+            <span>Ver rutas</span>
+          </button>
+        </div>
+
+        <div id="collisionAlertBanner" class="hidden text-xs text-rose-400 font-bold px-2.5 py-0.5 rounded-full bg-rose-950/70 border border-rose-500/50 animate-bounce">
+          ⚠ COLISIÓN DETECTADA
+        </div>
+      </div>
+
+      <!-- Canvas del Escenario (#) con Toolbar Flotante de Zoom en Figuras -->
+      <div class="flex-1 min-h-0 relative">
+        <!-- BARRA FLOTANTE DE ZOOM Y CUADRANTES DE ESCENARIO -->
+        <div class="absolute top-3 right-3 z-20 flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-800 shadow-xl text-xs">
+          <!-- Enfocar Cuadrante específico -->
+          <div class="flex items-center gap-1 px-1.5 border-r border-slate-800">
+            <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6Z"/></svg>
+            <select id="selectStageQuadrant" class="bg-transparent text-[11px] text-slate-300 font-medium outline-none cursor-pointer pr-1">
+              <option value="all" class="bg-slate-900 text-white">Todo el Escenario</option>
+              <option value="Upstage-Der" class="bg-slate-900 text-white">Upstage Der (Fondo Der)</option>
+              <option value="Upstage-Centro" class="bg-slate-900 text-white">Upstage Centro (Fondo)</option>
+              <option value="Upstage-Izq" class="bg-slate-900 text-white">Upstage Izq (Fondo Izq)</option>
+              <option value="Center-Der" class="bg-slate-900 text-white">Center Der (Centro Der)</option>
+              <option value="Center-Centro" class="bg-slate-900 text-white">Center Centro (Centro)</option>
+              <option value="Center-Izq" class="bg-slate-900 text-white">Center Izq (Centro Izq)</option>
+              <option value="Downstage-Der" class="bg-slate-900 text-white">Downstage Der (Frente Der)</option>
+              <option value="Downstage-Centro" class="bg-slate-900 text-white">Downstage Centro (Frente)</option>
+              <option value="Downstage-Izq" class="bg-slate-900 text-white">Downstage Izq (Frente Izq)</option>
+            </select>
+          </div>
+
+          <button id="btnStageZoomOut" class="p-1 rounded text-slate-400 hover:text-white" title="Alejar (-)">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </button>
+          <button id="btnStageZoomReset" class="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-[10px] font-mono text-cyan-400 font-bold" title="Reset Zoom">
+            100%
+          </button>
+          <button id="btnStageZoomIn" class="p-1 rounded text-slate-400 hover:text-white" title="Acercar (+)">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          </button>
+        </div>
+
+        <canvas id="stageCanvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+      </div>
+
+      <!-- SIMULADOR VISTA BAILARÍN -->
+      <div id="dancer-simulator" class="p-3 sm:p-4 bg-slate-900 border-t border-slate-800">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-400 font-medium">¿Quién eres?</label>
+            <select id="selectDancerIdentity" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none cursor-pointer"></select>
+          </div>
+          <div id="syncStatusBadge" class="text-[11px] text-emerald-400 font-medium flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span>Sincronizado en tiempo real</span>
+          </div>
+        </div>
+
+        <div id="dancerInstructionCard" class="p-3 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+          <div class="flex items-start gap-3">
+            <div id="dancerBadgeAvatar" class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-slate-950 text-sm shadow-md shrink-0 border-2 border-white bg-violet-500">1</div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span id="dancerCardName" class="font-bold text-sm text-white">Ana</span>
+                <span id="dancerCardStatus" class="text-[10px] font-bold px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-950/60 text-cyan-300">Estático (Hold)</span>
+                <span id="dancerCardLevel" class="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700 font-mono">NIVEL: MEDIO</span>
+              </div>
+              <p id="dancerCardText" class="text-xs text-slate-300 mt-1 leading-relaxed">Estás en Downstage Centro. Mantén tu posición.</p>
+            </div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-center shrink-0">
+            <span class="text-[9px] text-slate-500 uppercase block font-bold">Conteo</span>
+            <span id="dancerCardBeat" class="text-base font-black text-emerald-400 font-mono">O1 · T1</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- DIVISOR HORIZONTAL PARA CAMBIAR ALTURA DE LA BARRA DE MÚSICA (SPLITTER) -->
+  <div id="splitterTimeline" class="h-1.5 hover:h-2 bg-slate-800 hover:bg-violet-500 cursor-row-resize transition-all z-30 shrink-0" title="Arrastra verticalmente para cambiar el tamaño de la línea de tiempo"></div>
+
+  <!-- LÍNEA DE TIEMPO Y CONTROLES DE AUDIO -->
+  <footer id="footerTimelineArea" style="height: 205px;" class="bg-slate-900 border-t border-slate-800 flex flex-col z-10 shrink-0">
+    <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-slate-900 text-xs">
+      <div class="flex items-center gap-2">
+        <button id="btnPlayPause" class="btn-act active px-4 py-1.5 font-bold">▶ Play</button>
+        <button id="btnStop" class="btn-act" title="Detener y volver al inicio">⏮</button>
+        <div id="timecodeDisplay" class="px-2.5 py-1 rounded bg-slate-950 border border-slate-800 font-mono text-emerald-400 font-bold min-w-[95px] text-center">00.00 / 16.0s</div>
+        <select id="selectPlaybackRate" class="bg-slate-800 text-slate-200 border border-slate-700 rounded-lg px-2 py-1 outline-none cursor-pointer">
+          <option value="0.5">0.5x</option>
+          <option value="0.75">0.75x</option>
+          <option value="1" selected>1.0x</option>
+        </select>
+        <button id="btnLoopPhrase" class="btn-act" title="Repetir en bucle el Ocho actual">Bucle Ocho</button>
+        <label class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 text-slate-300 cursor-pointer">
+          <input id="checkMetronome" type="checkbox" checked class="w-3.5 h-3.5 rounded text-violet-600 focus:ring-0">
+          <span>Metrónomo</span>
+        </label>
+      </div>
+
+      <!-- TAP-TO-BEAT & ZOOM DE BARRA DE MÚSICA -->
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <div class="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px]">
+          <span class="text-slate-400 font-bold uppercase text-[9px]">Zoom Pista:</span>
+          <button id="btnTlZoomOut" class="p-0.5 text-slate-400 hover:text-white" title="Alejar (-)">🔍−</button>
+          <span id="labelTlZoom" class="font-mono text-cyan-400 font-bold px-1">1.0x</span>
+          <button id="btnTlZoomIn" class="p-0.5 text-slate-400 hover:text-white" title="Acercar (+)">🔍+</button>
+          <button id="btnTlZoomFit" class="text-[10px] text-slate-400 hover:text-cyan-300 px-1 border-l border-slate-800" title="Ver todo">Todo</button>
+        </div>
+
+        <button id="btnRecordCounts" class="btn-act">● Grabar conteos</button>
+        <button id="btnTapBeat" class="btn-act active bg-gradient-to-r from-violet-600 to-cyan-500 font-bold text-white shadow-md shadow-violet-500/30">Marcar Tiempo [T]</button>
+        <button id="btnResetCountToOne" class="btn-act" title="Forzar que el próximo sea el Tiempo 1">Reiniciar en 1</button>
+        <button id="btnClearBeats" class="btn-act danger" title="Borrar todos los conteos">Borrar</button>
+      </div>
+    </div>
+
+    <!-- Canvas multipista de Timeline -->
+    <div class="flex-1 min-h-0 relative">
+      <canvas id="timelineCanvas" class="w-full h-full block cursor-ew-resize"></canvas>
+    </div>
+  </footer>
+
+  <!-- MODAL SALA EN VIVO / QR (CON MODO OFFLINE ACADEMIA) -->
+  <div id="liveModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm select-none">
+    <div class="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-5 text-slate-100 flex flex-col gap-3">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+        <h3 class="font-bold text-sm text-white flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          Sala en Vivo para Bailarines
+        </h3>
+        <button id="btnCloseModal" class="p-1 rounded-lg text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <!-- Alerta Modo Academia sin Internet -->
+      <div class="p-2.5 rounded-xl bg-cyan-950/50 border border-cyan-500/30 text-xs text-cyan-200">
+        <p class="font-bold text-cyan-300 mb-0.5">💡 Modo Academia (Sin Internet):</p>
+        <p class="text-[11px] leading-relaxed">
+          Para que los celulares se sincronicen sin internet, basta con que estén conectados a la misma red Wi-Fi o al <strong>Punto de acceso móvil (Hotspot)</strong> de tu teléfono.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <div class="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-1.5 flex items-center gap-1.5 text-xs font-mono">
+          <span class="text-slate-500 font-bold uppercase">HOST:</span>
+          <input id="inputHostIp" type="text" value="172.17.23.194:5173" class="bg-transparent flex-1 outline-none text-emerald-400 font-bold">
+        </div>
+        <button id="btnUpdateHostIp" class="px-2.5 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-xl text-xs font-semibold">Fijar IP</button>
+      </div>
+
+      <!-- Contenedor QR generado por Canvas -->
+      <div class="flex flex-col items-center justify-center p-3 rounded-xl bg-slate-950 border border-slate-800">
+        <canvas id="qrCanvas" class="w-44 h-44 rounded-lg border-2 border-cyan-500/50 shadow-lg shadow-cyan-500/20"></canvas>
+        <span class="text-[10px] text-slate-400 mt-1.5 font-mono">Escanea para abrir la vista de bailarín</span>
+      </div>
+
+      <div class="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 text-xs font-mono">
+        <input id="inputLiveUrl" type="text" readonly class="bg-transparent flex-1 outline-none text-slate-300 truncate">
+        <button id="btnCopyUrl" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-medium">Copiar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LÓGICA COMPLETA DE APLICACIÓN -->
+  <script>
+    (function() {
+      const $ = id => document.getElementById(id);
+      const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+      const uid = () => 'id_' + Math.random().toString(36).slice(2, 9);
+      const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+      const COLORS = ['#8b5cf6', '#22d3ee', '#34d399', '#f472b6', '#fbbf24', '#fb7185', '#60a5fa', '#a3e635'];
+      const LEVELS = ['piso', 'medio', 'arriba'];
+      const ZONES_V = ['Upstage', 'Center', 'Downstage'];
+      const ZONES_H = ['Der', 'Centro', 'Izq'];
+
+      let state = null;
+      let currentTimeMs = 0;
+      let lastTimeMs = 0;
+      let isPlaying = false;
+      let playbackRate = 1;
+      let selectedFormationId = null;
+      let selectedDancerId = null;
+      let isRecordingCounts = false;
+      let resetNextToOne = false;
+      let isMirror = false;
+      let showAllPaths = false;
+      let isLoopPhrase = false;
+      let viewMode = 'choreographer';
+      
+      // Zoom & Pan de Escenario
+      let stageZoom = 1.0;
+      let stagePan = { x: 0, y: 0 };
+
+      // Zoom & Scroll de Timeline (Barra de música)
+      let tlZoom = 1.0;
+      let tlScrollLeftMs = 0;
+
+      let audioCtx = null;
+      let audioElement = null;
+      let isAudioReal = false;
+      let waveformPeaks = [];
+      let collisionTimes = [];
+      let activeDrag = null;
+      let t0 = 0, c0 = 0;
+
+      // BroadcastChannel para sincronización en tiempo real
+      let liveChannel = null;
+      try {
+        liveChannel = new BroadcastChannel('choreosync_broadcast');
+        liveChannel.onmessage = e => {
+          if (e.data && e.data.type === 'SYNC') {
+            currentTimeMs = e.data.t;
+            isPlaying = e.data.p;
+            if (e.data.f) selectedFormationId = e.data.f;
+          }
+        };
+      } catch (err) {}
+
+      function broadcastSync() {
+        if (liveChannel) {
+          liveChannel.postMessage({
+            type: 'SYNC',
+            t: currentTimeMs,
+            p: isPlaying,
+            f: selectedFormationId
+          });
+        }
+      }
+
+      // 1. DEMO CHOREOGRAPHY
+      function initDemo() {
+        const names = ['Ana', 'Beto', 'Carla', 'Dani', 'Eli', 'Fer', 'Gabo', 'Hugo'];
+        const dancers = names.map((name, i) => ({
+          id: 'dancer_' + i,
+          slotNumber: i + 1,
+          name,
+          color: COLORS[i % COLORS.length],
+          group: i < 4 ? 'Alfa' : 'Beta',
+          defaultLevel: 'medio'
+        }));
+
+        const mkPositions = fn => {
+          const pos = {};
+          dancers.forEach((d, i) => {
+            const p = fn(i);
+            pos[d.id] = {
+              x: p.x,
+              y: p.y,
+              level: p.l || 'medio',
+              curveOffset: p.c || { cx: 0, cy: 0 },
+              notes: ''
+            };
+          });
+          return pos;
+        };
+
+        const formations = [
+          {
+            id: 'form_1',
+            name: 'Línea frontal',
+            startTimeMs: 0,
+            holdDurationMs: 4000,
+            transitionDurationMs: 2000,
+            positions: mkPositions(i => ({ x: 0.12 + (i * 0.76) / 7, y: 0.82 }))
+          },
+          {
+            id: 'form_2',
+            name: 'Círculo dinámico',
+            startTimeMs: 6000,
+            holdDurationMs: 3000,
+            transitionDurationMs: 3000,
+            positions: mkPositions(i => ({
+              x: 0.5 + 0.28 * Math.cos((i * Math.PI * 2) / 8),
+              y: 0.5 + 0.28 * Math.sin((i * Math.PI * 2) / 8),
+              l: i % 2 === 0 ? 'arriba' : 'medio',
+              c: i % 2 === 0 ? { cx: 0.08, cy: -0.1 } : { cx: -0.08, cy: 0.1 }
+            }))
+          },
+          {
+            id: 'form_3',
+            name: 'Dos columnas',
+            startTimeMs: 12000,
+            holdDurationMs: 4000,
+            transitionDurationMs: 0,
+            positions: mkPositions(i => ({
+              x: i < 4 ? 0.28 : 0.72,
+              y: 0.22 + (i % 4) * 0.2,
+              l: i < 4 ? 'arriba' : 'piso'
+            }))
+          }
+        ];
+
+        state = {
+          version: '1.0.0',
+          durationMs: 16000,
+          dancers,
+          formations,
+          beats: []
+        };
+
+        generateBeats(500);
+        selectedFormationId = 'form_1';
+        selectedDancerId = dancers[0].id;
+        calcCollisions();
+      }
+
+      function generateBeats(intervalMs) {
+        state.beats = [];
+        for (let i = 0; i * intervalMs < state.durationMs; i++) {
+          state.beats.push({
+            id: uid(),
+            timestampMs: i * intervalMs,
+            phraseIndex: Math.floor(i / 8) + 1,
+            countNumber: (i % 8) + 1
+          });
+        }
+        synthWaveformPeaks();
+      }
+
+      function synthWaveformPeaks() {
+        waveformPeaks = [];
+        const N = 1200;
+        for (let i = 0; i < N; i++) {
+          const t = (i / N) * state.durationMs;
+          let amp = 0.08 + 0.04 * Math.sin(i * 0.15);
+          for (const b of state.beats) {
+            const diff = t - b.timestampMs;
+            if (diff >= 0 && diff < 220) {
+              const mult = b.countNumber === 1 ? 1.0 : b.countNumber % 2 === 1 ? 0.75 : 0.5;
+              amp = Math.max(amp, mult * Math.exp(-diff / 65));
+            }
+          }
+          waveformPeaks.push(Math.min(1, amp));
+        }
+      }
+
+      function saveStorage() {
+        try { localStorage.setItem('choreosync_pro_standalone', JSON.stringify(state)); } catch(e){}
+      }
+      function loadStorage() {
+        try {
+          const data = JSON.parse(localStorage.getItem('choreosync_pro_standalone'));
+          if (data && data.dancers && data.formations) return data;
+        } catch(e){}
+        return null;
+      }
+
+      // 2. MATH & INTERPOLATION
+      const getActiveFormation = () => state.formations.find(f => f.id === selectedFormationId) || state.formations[0];
+      const getNextFormation = () => {
+        const curF = getActiveFormation();
+        const idx = state.formations.indexOf(curF);
+        return idx >= 0 ? state.formations[idx + 1] : null;
+      };
+
+      const quadBezier = (p0, pCtrl, p1, t) => {
+        const v = 1 - t;
+        return v * v * p0 + 2 * v * t * pCtrl + t * t * p1;
+      };
+      const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+      function getCtrlPoint(fromPos, toPos) {
+        const offset = fromPos.curveOffset || { cx: 0, cy: 0 };
+        return {
+          x: (fromPos.x + toPos.x) / 2 + offset.cx,
+          y: (fromPos.y + toPos.y) / 2 + offset.cy
+        };
+      }
+
+      function getDancersPose(t) {
+        const result = {};
+        let activeIdx = 0;
+        state.formations.forEach((f, idx) => {
+          if (f.startTimeMs <= t) activeIdx = idx;
+        });
+
+        const currentF = state.formations[activeIdx];
+        const nextF = state.formations[activeIdx + 1];
+
+        state.dancers.forEach(d => {
+          const curP = currentF.positions[d.id];
+          if (!curP) return;
+
+          if (!nextF || !nextF.positions[d.id]) {
+            result[d.id] = { x: curP.x, y: curP.y, level: curP.level, isMoving: false, progress: 0 };
+            return;
+          }
+
+          const nextP = nextF.positions[d.id];
+          const holdEnd = currentF.startTimeMs + currentF.holdDurationMs;
+          const transEnd = holdEnd + currentF.transitionDurationMs;
+
+          if (t <= holdEnd || currentF.transitionDurationMs <= 0) {
+            result[d.id] = { x: curP.x, y: curP.y, level: curP.level, isMoving: false, progress: 0 };
+          } else if (t < transEnd) {
+            const rawProgress = (t - holdEnd) / currentF.transitionDurationMs;
+            const eased = easeInOut(rawProgress);
+            const ctrl = getCtrlPoint(curP, nextP);
+            result[d.id] = {
+              x: quadBezier(curP.x, ctrl.x, nextP.x, eased),
+              y: quadBezier(curP.y, ctrl.y, nextP.y, eased),
+              level: rawProgress >= 0.5 ? nextP.level : curP.level,
+              isMoving: true,
+              progress: rawProgress
+            };
+          } else {
+            result[d.id] = { x: nextP.x, y: nextP.y, level: nextP.level, isMoving: false, progress: 1 };
+          }
+        });
+        return result;
+      }
+
+      function getStageZoneName(x, y) {
+        const r = clamp(Math.floor(y * 3), 0, 2);
+        const c = clamp(Math.floor(x * 3), 0, 2);
+        return `${ZONES_V[r]} ${ZONES_H[c]}`;
+      }
+
+      function getCollidingPairs(poses) {
+        const ids = Object.keys(poses);
+        const bad = [];
+        const radius = 0.058;
+        for (let i = 0; i < ids.length; i++) {
+          for (let j = i + 1; j < ids.length; j++) {
+            const a = poses[ids[i]];
+            const b = poses[ids[j]];
+            if ((a.level === 'piso' && b.level === 'arriba') || (a.level === 'arriba' && b.level === 'piso')) continue;
+            const dist = Math.hypot((a.x - b.x) * 1.4, a.y - b.y);
+            if (dist < radius) bad.push([ids[i], ids[j]]);
+          }
+        }
+        return bad;
+      }
+
+      function calcCollisions() {
+        collisionTimes = [];
+        for (let i = 0; i < state.formations.length - 1; i++) {
+          const f = state.formations[i];
+          if (f.transitionDurationMs <= 0) continue;
+          for (let s = 0; s <= 20; s++) {
+            const t = f.startTimeMs + f.holdDurationMs + (f.transitionDurationMs * s) / 20;
+            const bad = getCollidingPairs(getDancersPose(t));
+            if (bad.length > 0) collisionTimes.push(t);
+          }
+        }
+      }
+
+      // 3. AUDIO ENGINE & METRONOME
+      function getAudioContext() {
+        if (!audioCtx) {
+          const AudioC = window.AudioContext || window.webkitAudioContext;
+          audioCtx = new AudioC();
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+      }
+
+      function playBeatClick(countNum) {
+        try {
+          const ctx = getAudioContext();
+          const t = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          const isOne = countNum === 1;
+          osc.type = isOne ? 'triangle' : 'sine';
+          osc.frequency.setValueAtTime(isOne ? 1650 : 1050, t);
+          gain.gain.setValueAtTime(0.35 * (isOne ? 1 : 0.6), t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.055);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.06);
+
+          if (isOne || countNum === 5) {
+            const kick = ctx.createOscillator();
+            const kgain = ctx.createGain();
+            kick.frequency.setValueAtTime(isOne ? 140 : 110, t);
+            kick.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+            kgain.gain.setValueAtTime(0.3, t);
+            kgain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+            kick.connect(kgain).connect(ctx.destination);
+            kick.start(t);
+            kick.stop(t + 0.15);
+          }
+        } catch(e){}
+      }
+
+      function seek(ms) {
+        currentTimeMs = clamp(ms, 0, state.durationMs);
+        lastTimeMs = currentTimeMs;
+        if (isPlaying) {
+          t0 = performance.now();
+          c0 = currentTimeMs;
+          if (isAudioReal && audioElement) audioElement.currentTime = currentTimeMs / 1000;
+        }
+        state.formations.forEach(f => {
+          if (f.startTimeMs <= currentTimeMs) selectedFormationId = f.id;
+        });
+        renderLists();
+        broadcastSync();
+      }
+
+      function play() {
+        getAudioContext();
+        if (currentTimeMs >= state.durationMs - 50) currentTimeMs = 0;
+        isPlaying = true;
+        t0 = performance.now();
+        c0 = currentTimeMs;
+        lastTimeMs = currentTimeMs;
+        if (isAudioReal && audioElement) {
+          audioElement.currentTime = currentTimeMs / 1000;
+          audioElement.playbackRate = playbackRate;
+          audioElement.play().catch(()=>{});
+        }
+        broadcastSync();
+      }
+
+      function pause() {
+        isPlaying = false;
+        if (audioElement) audioElement.pause();
+        broadcastSync();
+      }
+
+      function togglePlay() {
+        isPlaying ? pause() : play();
+      }
+
+      function tapBeat() {
+        const cur = Math.round(currentTimeMs);
+        const last = state.beats[state.beats.length - 1];
+        let c = 1, ph = 1;
+        if (last) {
+          if (resetNextToOne) {
+            ph = last.phraseIndex + 1;
+            c = 1;
+          } else {
+            c = (last.countNumber % 8) + 1;
+            ph = last.phraseIndex + (c === 1 ? 1 : 0);
+          }
+        }
+        resetNextToOne = false;
+        state.beats.push({ id: uid(), timestampMs: cur, phraseIndex: ph, countNumber: c });
+        state.beats.sort((a, b) => a.timestampMs - b.timestampMs);
+        playBeatClick(c);
+        saveStorage();
+      }
+
+      // 4. CANVAS STAGE RENDERING (CON ZOOM Y PANEO)
+      const stageCanvas = $('stageCanvas');
+      const stageCtx = stageCanvas.getContext('2d');
+
+      function getStageRect() {
+        const W = stageCanvas.clientWidth;
+        const H = stageCanvas.clientHeight;
+        const padX = 28, padY = 56;
+        let baseW = W - padX * 2, baseH = H - padY * 2;
+        const aspect = 1.45;
+        if (baseW / baseH > aspect) baseW = baseH * aspect;
+        else baseH = baseW / aspect;
+
+        const w = baseW * stageZoom;
+        const h = baseH * stageZoom;
+        const centerX = W / 2 + stagePan.x;
+        const centerY = H / 2 + stagePan.y;
+
+        return { x: centerX - w / 2, y: centerY - h / 2, w, h, baseW, baseH };
+      }
+
+      const toScreen = (nx, ny, rect) => {
+        const px = isMirror ? 1 - nx : nx;
+        const py = isMirror ? 1 - ny : ny;
+        return { x: rect.x + px * rect.w, y: rect.y + py * rect.h };
+      };
+
+      const toNorm = (sx, sy, rect) => {
+        let nx = (sx - rect.x) / rect.w;
+        let ny = (sy - rect.y) / rect.h;
+        if (isMirror) { nx = 1 - nx; ny = 1 - ny; }
+        return { x: clamp(nx), y: clamp(ny) };
+      };
+
+      function focusQuadrant(quadrantKey) {
+        if (quadrantKey === 'all') {
+          stageZoom = 1.0;
+          stagePan = { x: 0, y: 0 };
+          $('btnStageZoomReset').textContent = '100%';
+          return;
+        }
+
+        const [vKey, hKey] = quadrantKey.split('-');
+        const rIdx = ZONES_V.indexOf(vKey);
+        const cIdx = ZONES_H.indexOf(hKey);
+
+        if (rIdx >= 0 && cIdx >= 0) {
+          const targetNormX = (cIdx + 0.5) / 3;
+          const targetNormY = (rIdx + 0.5) / 3;
+
+          stageZoom = 2.4;
+          const rect = getStageRect();
+          stagePan.x = (0.5 - targetNormX) * rect.baseW * stageZoom;
+          stagePan.y = (0.5 - targetNormY) * rect.baseH * stageZoom;
+          $('btnStageZoomReset').textContent = Math.round(stageZoom * 100) + '%';
+        }
+      }
+
+      function drawStage() {
+        const dpr = window.devicePixelRatio || 1;
+        const W = stageCanvas.clientWidth;
+        const H = stageCanvas.clientHeight;
+        if (stageCanvas.width !== W * dpr || stageCanvas.height !== H * dpr) {
+          stageCanvas.width = W * dpr;
+          stageCanvas.height = H * dpr;
+        }
+        stageCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        stageCtx.clearRect(0, 0, W, H);
+
+        const rect = getStageRect();
+        const dancerRadius = Math.max(14, Math.min(rect.w, rect.h) * 0.046);
+
+        // Fondo y borde
+        stageCtx.fillStyle = '#0b1220';
+        stageCtx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        stageCtx.strokeStyle = '#334155';
+        stageCtx.lineWidth = Math.max(1.5, 2 * Math.min(1.5, stageZoom));
+        stageCtx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+
+        // División "#"
+        stageCtx.strokeStyle = '#475569';
+        stageCtx.lineWidth = Math.max(1.2, 1.8 * Math.min(1.5, stageZoom));
+        for (let i = 1; i < 3; i++) {
+          stageCtx.beginPath();
+          stageCtx.moveTo(rect.x + rect.w * i / 3, rect.y - 8 * stageZoom);
+          stageCtx.lineTo(rect.x + rect.w * i / 3, rect.y + rect.h + 8 * stageZoom);
+          stageCtx.stroke();
+          stageCtx.beginPath();
+          stageCtx.moveTo(rect.x - 8 * stageZoom, rect.y + rect.h * i / 3);
+          stageCtx.lineTo(rect.x + rect.w + 8 * stageZoom, rect.y + rect.h * i / 3);
+          stageCtx.stroke();
+        }
+
+        // Etiquetas de cuadrante
+        const labelSize = Math.max(10, Math.min(18, 11 * Math.sqrt(stageZoom)));
+        stageCtx.font = `500 ${labelSize}px system-ui`;
+        stageCtx.fillStyle = 'rgba(148, 163, 184, 0.35)';
+        stageCtx.textAlign = 'center';
+        stageCtx.textBaseline = 'middle';
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 3; c++) {
+            const s = toScreen((c + 0.5) / 3, (r + 0.5) / 3, rect);
+            const vL = isMirror ? ZONES_V[2 - r] : ZONES_V[r];
+            const hL = isMirror ? ZONES_H[2 - c] : ZONES_H[c];
+            stageCtx.fillText(`${vL} ${hL}`, s.x, s.y);
+          }
+        }
+
+        // Frente / Público
+        const bannerSize = Math.max(11, Math.min(16, 12 * Math.sqrt(stageZoom)));
+        stageCtx.font = `bold ${bannerSize}px system-ui`;
+        stageCtx.fillStyle = '#22d3ee';
+        stageCtx.textAlign = 'center';
+        if (isMirror) {
+          stageCtx.fillText('▲ FRENTE / PÚBLICO (VISTA DESDE EL ESCENARIO) ▲', rect.x + rect.w / 2, rect.y - 14 * Math.min(1.5, stageZoom));
+        } else {
+          stageCtx.fillText('▼ FRENTE / PÚBLICO (VISTA AUDITORIO / DIRECCIÓN) ▼', rect.x + rect.w / 2, rect.y + rect.h + 20 * Math.min(1.5, stageZoom));
+        }
+
+        const poses = getDancersPose(currentTimeMs);
+        const colls = getCollidingPairs(poses);
+        const badSet = new Set(colls.flat());
+
+        const alertBanner = $('collisionAlertBanner');
+        if (colls.length > 0) {
+          alertBanner.classList.remove('hidden');
+          alertBanner.textContent = '⚠ COLISIÓN: ' + colls.map(pair => pair.map(id => state.dancers.find(d => d.id === id).name).join(' × ')).join(', ');
+        } else {
+          alertBanner.classList.add('hidden');
+        }
+
+        // Rutas y flechas Bézier
+        const curF = getActiveFormation();
+        const nextF = getNextFormation();
+        if (curF && nextF) {
+          state.dancers.forEach(d => {
+            const isSel = d.id === selectedDancerId;
+            if (!showAllPaths && !isSel) return;
+            const pFrom = curF.positions[d.id];
+            const pTo = nextF.positions[d.id];
+            if (!pFrom || !pTo) return;
+
+            const sA = toScreen(pFrom.x, pFrom.y, rect);
+            const sB = toScreen(pTo.x, pTo.y, rect);
+            const ctrl = getCtrlPoint(pFrom, pTo);
+            const sC = toScreen(ctrl.x, ctrl.y, rect);
+
+            stageCtx.save();
+            stageCtx.setLineDash([6 * stageZoom, 5 * stageZoom]);
+            stageCtx.strokeStyle = d.color + 'aa';
+            stageCtx.lineWidth = Math.max(2, 2.5 * Math.min(1.5, stageZoom));
+            stageCtx.beginPath();
+            stageCtx.moveTo(sA.x, sA.y);
+            stageCtx.quadraticCurveTo(sC.x, sC.y, sB.x, sB.y);
+            stageCtx.stroke();
+            stageCtx.restore();
+
+            if (isSel && viewMode === 'choreographer') {
+              stageCtx.fillStyle = '#22d3ee';
+              stageCtx.beginPath();
+              stageCtx.arc(sC.x, sC.y, Math.max(6, 8 * Math.min(1.5, stageZoom)), 0, Math.PI * 2);
+              stageCtx.fill();
+              stageCtx.strokeStyle = '#fff';
+              stageCtx.lineWidth = 2;
+              stageCtx.stroke();
+            }
+          });
+        }
+
+        // Bailarines
+        state.dancers.forEach(d => {
+          const pose = poses[d.id];
+          if (!pose) return;
+
+          const s = toScreen(pose.x, pose.y, rect);
+          const isSel = d.id === selectedDancerId;
+          const isDanMe = viewMode === 'dancer' && isSel;
+          const isBad = badSet.has(d.id);
+
+          const scale = viewMode === 'dancer' ? (isDanMe ? 1.45 : 0.85) : 1.0;
+          const alpha = viewMode === 'dancer' && !isDanMe ? 0.35 : 1.0;
+          const r = dancerRadius * scale;
+
+          stageCtx.save();
+          stageCtx.globalAlpha = alpha;
+
+          if (isSel) {
+            stageCtx.shadowColor = isBad ? '#ef4444' : d.color;
+            stageCtx.shadowBlur = 24 * Math.min(1.5, stageZoom);
+          }
+
+          if (isBad) {
+            stageCtx.strokeStyle = '#ef4444';
+            stageCtx.lineWidth = Math.max(2, 3 * Math.min(1.5, stageZoom));
+            stageCtx.beginPath();
+            stageCtx.arc(s.x, s.y, r + 8 * Math.min(1.5, stageZoom), 0, Math.PI * 2);
+            stageCtx.stroke();
+          }
+
+          stageCtx.fillStyle = d.color;
+          stageCtx.beginPath();
+          stageCtx.arc(s.x, s.y, r, 0, Math.PI * 2);
+          stageCtx.fill();
+
+          stageCtx.lineWidth = isSel ? Math.max(2.5, 3.5 * Math.min(1.5, stageZoom)) : 1.5;
+          stageCtx.strokeStyle = isBad ? '#ef4444' : isSel ? '#ffffff' : '#0f172a';
+          stageCtx.stroke();
+          stageCtx.shadowBlur = 0;
+
+          // Número
+          stageCtx.fillStyle = '#0f172a';
+          stageCtx.font = `bold ${Math.round(r * 0.9)}px system-ui`;
+          stageCtx.textAlign = 'center';
+          stageCtx.textBaseline = 'middle';
+          stageCtx.fillText(d.slotNumber, s.x, s.y + 1);
+
+          // Nivel badge
+          const badgeR = r * 0.42;
+          const bx = s.x + r * 0.8;
+          const by = s.y - r * 0.8;
+          stageCtx.fillStyle = '#0f172a';
+          stageCtx.beginPath();
+          stageCtx.arc(bx, by, badgeR, 0, Math.PI * 2);
+          stageCtx.fill();
+          stageCtx.strokeStyle = '#475569';
+          stageCtx.lineWidth = 1;
+          stageCtx.stroke();
+
+          stageCtx.fillStyle = pose.level === 'arriba' ? '#38bdf8' : pose.level === 'piso' ? '#fbbf24' : '#ffffff';
+          stageCtx.font = `bold ${Math.round(badgeR * 1.1)}px system-ui`;
+          stageCtx.fillText(pose.level[0].toUpperCase(), bx, by + 1);
+
+          // Nombre
+          stageCtx.fillStyle = '#f1f5f9';
+          stageCtx.font = `600 ${Math.max(10, Math.round(r * 0.6))}px system-ui`;
+          stageCtx.fillText(d.name, s.x, s.y + r + 13 * Math.min(1.4, stageZoom));
+
+          stageCtx.restore();
+        });
+      }
+
+      // Drag & Paneo en Stage
+      stageCanvas.onwheel = e => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.12 : 0.88;
+        stageZoom = clamp(Math.round(stageZoom * factor * 100) / 100, 0.6, 4.5);
+        $('btnStageZoomReset').textContent = Math.round(stageZoom * 100) + '%';
+      };
+
+      stageCanvas.onpointerdown = e => {
+        const bcr = stageCanvas.getBoundingClientRect();
+        const px = e.clientX - bcr.left;
+        const py = e.clientY - bcr.top;
+        const rect = getStageRect();
+
+        // Paneo con botón central, secundario o Alt
+        if (e.button === 1 || e.button === 2 || e.altKey) {
+          activeDrag = { type: 'stage_pan', startX: e.clientX, startY: e.clientY, initX: stagePan.x, initY: stagePan.y, pointerId: e.pointerId };
+          stageCanvas.setPointerCapture(e.pointerId);
+          return;
+        }
+
+        if (viewMode === 'choreographer') {
+          const curF = getActiveFormation();
+          const nextF = getNextFormation();
+
+          if (selectedDancerId && curF && nextF) {
+            const pA = curF.positions[selectedDancerId];
+            const pB = nextF.positions[selectedDancerId];
+            if (pA && pB) {
+              const ctrl = getCtrlPoint(pA, pB);
+              const sCtrl = toScreen(ctrl.x, ctrl.y, rect);
+              if (Math.hypot(sCtrl.x - px, sCtrl.y - py) < 16) {
+                activeDrag = { type: 'ctrl', id: selectedDancerId, pointerId: e.pointerId };
+                stageCanvas.setPointerCapture(e.pointerId);
+                return;
+              }
+            }
+          }
+
+          const poses = getDancersPose(currentTimeMs);
+          let hit = null;
+          state.dancers.forEach(d => {
+            const pose = poses[d.id];
+            if (!pose) return;
+            const s = toScreen(pose.x, pose.y, rect);
+            if (Math.hypot(s.x - px, s.y - py) <= 24) hit = d;
+          });
+
+          if (hit) {
+            selectedDancerId = hit.id;
+            activeDrag = { type: 'dancer', id: hit.id, pointerId: e.pointerId };
+            stageCanvas.setPointerCapture(e.pointerId);
+            renderLists();
+            return;
+          }
+        }
+
+        // Si dio clic en fondo vacío: Paneo de escenario
+        selectedDancerId = null;
+        activeDrag = { type: 'stage_pan', startX: e.clientX, startY: e.clientY, initX: stagePan.x, initY: stagePan.y, pointerId: e.pointerId };
+        stageCanvas.setPointerCapture(e.pointerId);
+        renderLists();
+      };
+
+      stageCanvas.onpointermove = e => {
+        if (!activeDrag) return;
+        const bcr = stageCanvas.getBoundingClientRect();
+
+        if (activeDrag.type === 'stage_pan') {
+          stagePan.x = activeDrag.initX + (e.clientX - activeDrag.startX);
+          stagePan.y = activeDrag.initY + (e.clientY - activeDrag.startY);
+          return;
+        }
+
+        const rect = getStageRect();
+        const norm = toNorm(e.clientX - bcr.left, e.clientY - bcr.top, rect);
+        const curF = getActiveFormation();
+
+        if (activeDrag.type === 'dancer') {
+          if (curF && curF.positions[activeDrag.id]) {
+            curF.positions[activeDrag.id].x = norm.x;
+            curF.positions[activeDrag.id].y = norm.y;
+          }
+        } else if (activeDrag.type === 'ctrl') {
+          const nextF = getNextFormation();
+          if (curF && nextF) {
+            const pA = curF.positions[activeDrag.id];
+            const pB = nextF.positions[activeDrag.id];
+            pA.curveOffset = {
+              cx: norm.x - (pA.x + pB.x) / 2,
+              cy: norm.y - (pA.y + pB.y) / 2
+            };
+          }
+        }
+      };
+
+      stageCanvas.onpointerup = () => {
+        if (activeDrag) {
+          activeDrag = null;
+          calcCollisions();
+          saveStorage();
+        }
+      };
+
+      // Controles Zoom Escenario
+      $('btnStageZoomIn').onclick = () => {
+        stageZoom = clamp(Math.round((stageZoom + 0.2) * 10) / 10, 0.6, 4.5);
+        $('btnStageZoomReset').textContent = Math.round(stageZoom * 100) + '%';
+      };
+      $('btnStageZoomOut').onclick = () => {
+        stageZoom = clamp(Math.round((stageZoom - 0.2) * 10) / 10, 0.6, 4.5);
+        $('btnStageZoomReset').textContent = Math.round(stageZoom * 100) + '%';
+      };
+      $('btnStageZoomReset').onclick = () => {
+        stageZoom = 1.0;
+        stagePan = { x: 0, y: 0 };
+        $('selectStageQuadrant').value = 'all';
+        $('btnStageZoomReset').textContent = '100%';
+      };
+      $('selectStageQuadrant').onchange = e => focusQuadrant(e.target.value);
+
+      // 5. TIMELINE RENDERING (CON ZOOM HORIZONTAL Y SCROLL)
+      const timelineCanvas = $('timelineCanvas');
+      const timelineCtx = timelineCanvas.getContext('2d');
+
+      const getVisibleDuration = () => Math.max(500, state.durationMs / tlZoom);
+
+      const tToX = (t, W) => {
+        const vis = getVisibleDuration();
+        return ((t - tlScrollLeftMs) / vis) * W;
+      };
+
+      const xToT = (x, W) => {
+        const vis = getVisibleDuration();
+        return clamp(tlScrollLeftMs + (x / W) * vis, 0, state.durationMs);
+      };
+
+      function drawTimeline() {
+        const dpr = window.devicePixelRatio || 1;
+        const W = timelineCanvas.clientWidth;
+        const H = timelineCanvas.clientHeight;
+        if (timelineCanvas.width !== W * dpr || timelineCanvas.height !== H * dpr) {
+          timelineCanvas.width = W * dpr;
+          timelineCanvas.height = H * dpr;
+        }
+        timelineCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        timelineCtx.clearRect(0, 0, W, H);
+
+        timelineCtx.fillStyle = '#020617';
+        timelineCtx.fillRect(0, 0, W, H);
+
+        const vis = getVisibleDuration();
+
+        // Minimapa superior si hay zoom
+        const miniH = tlZoom > 1.05 ? 14 : 0;
+        if (miniH > 0) {
+          timelineCtx.fillStyle = '#0b1220';
+          timelineCtx.fillRect(0, 0, W, miniH);
+
+          if (waveformPeaks.length > 0) {
+            timelineCtx.fillStyle = 'rgba(34, 211, 238, 0.4)';
+            for (let mx = 0; mx < W; mx += 3) {
+              const idx = Math.floor((mx / W) * waveformPeaks.length);
+              const amp = waveformPeaks[idx] || 0;
+              const bh = amp * (miniH - 4);
+              timelineCtx.fillRect(mx, (miniH - bh) / 2, 2, Math.max(1, bh));
+            }
+          }
+
+          const winX = (tlScrollLeftMs / state.durationMs) * W;
+          const winW = (vis / state.durationMs) * W;
+          timelineCtx.fillStyle = 'rgba(139, 92, 246, 0.3)';
+          timelineCtx.fillRect(winX, 0, winW, miniH);
+          timelineCtx.strokeStyle = '#a855f7';
+          timelineCtx.lineWidth = 1.5;
+          timelineCtx.strokeRect(winX, 0.5, winW, miniH - 1);
+        }
+
+        // Regla de segundos dinámica
+        const rulerY = miniH;
+        timelineCtx.fillStyle = '#0f172a';
+        timelineCtx.fillRect(0, rulerY, W, 20);
+        timelineCtx.font = '10px monospace';
+        timelineCtx.fillStyle = '#64748b';
+        timelineCtx.textAlign = 'left';
+
+        let stepSec = 5;
+        if (tlZoom >= 8) stepSec = 0.5;
+        else if (tlZoom >= 4) stepSec = 1;
+        else if (tlZoom >= 2) stepSec = 2;
+
+        const startSec = Math.floor(tlScrollLeftMs / 1000);
+        const endSec = Math.ceil((tlScrollLeftMs + vis) / 1000);
+
+        for (let s = startSec; s <= endSec; s += stepSec) {
+          const x = tToX(s * 1000, W);
+          if (x < -20 || x > W + 20) continue;
+          const major = s % (stepSec * 2) === 0 || s === 0;
+          timelineCtx.fillStyle = '#334155';
+          timelineCtx.fillRect(x, rulerY + (major ? 4 : 10), 1, major ? 16 : 10);
+          if (x >= 0 && x < W - 35) {
+            timelineCtx.fillStyle = '#64748b';
+            timelineCtx.fillText(`${s.toFixed(stepSec < 1 ? 1 : 0)}s`, x + 3, rulerY + 14);
+          }
+        }
+
+        // Pista 1: Audio
+        timelineCtx.fillStyle = 'rgba(30, 41, 59, 0.4)';
+        timelineCtx.fillRect(0, rulerY + 22, W, 50);
+        timelineCtx.font = '9px system-ui';
+        timelineCtx.fillStyle = '#64748b';
+        timelineCtx.fillText('AUDIO', 4, rulerY + 32);
+
+        if (waveformPeaks.length > 0) {
+          timelineCtx.strokeStyle = 'rgba(34, 211, 238, 0.85)';
+          timelineCtx.lineWidth = 1.2;
+          for (let x = 0; x < W; x += 2) {
+            const timeAtX = xToT(x, W);
+            const idx = Math.floor((timeAtX / state.durationMs) * waveformPeaks.length);
+            const amp = waveformPeaks[idx] || 0;
+            const h = Math.max(1, amp * 22);
+            timelineCtx.beginPath();
+            timelineCtx.moveTo(x + 0.5, rulerY + 47 - h);
+            timelineCtx.lineTo(x + 0.5, rulerY + 47 + h);
+            timelineCtx.stroke();
+          }
+        }
+
+        // Pista 2: Conteos 1 al 8
+        const beatsY = rulerY + 74;
+        timelineCtx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+        timelineCtx.fillRect(0, beatsY, W, 38);
+        timelineCtx.fillText('CONTEOS 1-8', 4, beatsY + 10);
+
+        state.beats.forEach(b => {
+          const bx = tToX(b.timestampMs, W);
+          if (bx < -20 || bx > W + 20) return;
+          const isOne = b.countNumber === 1;
+          timelineCtx.strokeStyle = isOne ? '#a855f7' : '#38bdf8';
+          timelineCtx.lineWidth = isOne ? 2.5 : 1.2;
+          timelineCtx.beginPath();
+          timelineCtx.moveTo(bx, isOne ? beatsY + 2 : beatsY + 10);
+          timelineCtx.lineTo(bx, beatsY + 36);
+          timelineCtx.stroke();
+
+          timelineCtx.font = isOne ? 'bold 10px monospace' : '9px monospace';
+          timelineCtx.fillStyle = isOne ? '#c084fc' : '#7dd3fc';
+          timelineCtx.textAlign = 'center';
+          timelineCtx.fillText(isOne ? `O${b.phraseIndex}·1` : String(b.countNumber), bx + (isOne ? 10 : 0), isOne ? beatsY + 12 : beatsY + 24);
+        });
+
+        // Pista 3: Formaciones
+        const formY = rulerY + 114;
+        timelineCtx.fillStyle = 'rgba(2, 6, 23, 0.8)';
+        timelineCtx.fillRect(0, formY, W, 46);
+        timelineCtx.textAlign = 'left';
+        timelineCtx.fillText('FORMACIONES', 4, formY + 10);
+
+        state.formations.forEach(f => {
+          const isSel = f.id === selectedFormationId;
+          const xA = tToX(f.startTimeMs, W);
+          const xH = tToX(f.startTimeMs + f.holdDurationMs, W);
+          const xT = tToX(f.startTimeMs + f.holdDurationMs + f.transitionDurationMs, W);
+
+          if (xT < 0 || xA > W) return;
+
+          timelineCtx.fillStyle = isSel ? '#7c3aed' : '#5b21b6';
+          timelineCtx.fillRect(xA, formY + 4, Math.max(2, xH - xA), 40);
+
+          if (f.transitionDurationMs > 0) {
+            timelineCtx.fillStyle = isSel ? '#0891b2' : '#0e7490';
+            timelineCtx.fillRect(xH, formY + 8, Math.max(2, xT - xH), 32);
+            timelineCtx.fillStyle = '#fff';
+            timelineCtx.fillRect(xT - 2, formY + 10, 4, 28);
+          }
+          timelineCtx.fillStyle = '#fff';
+          timelineCtx.fillRect(xH - 2, formY + 6, 4, 36);
+
+          if (isSel) {
+            timelineCtx.strokeStyle = '#fff';
+            timelineCtx.lineWidth = 1.5;
+            timelineCtx.strokeRect(xA, formY + 4, Math.max(4, xT - xA), 40);
+          }
+
+          timelineCtx.font = 'bold 11px system-ui';
+          timelineCtx.fillStyle = '#fff';
+          timelineCtx.fillText(f.name, xA + 6, formY + 22);
+        });
+
+        // Colisiones
+        timelineCtx.fillStyle = '#ef4444';
+        collisionTimes.forEach(t => {
+          const cx = tToX(t, W);
+          if (cx >= 0 && cx <= W) timelineCtx.fillRect(cx - 1, formY, 2.5, 6);
+        });
+
+        // Playhead verde
+        const px = tToX(currentTimeMs, W);
+        if (px >= -5 && px <= W + 5) {
+          timelineCtx.strokeStyle = '#10b981';
+          timelineCtx.lineWidth = 2;
+          timelineCtx.beginPath();
+          timelineCtx.moveTo(px, rulerY);
+          timelineCtx.lineTo(px, H);
+          timelineCtx.stroke();
+
+          timelineCtx.fillStyle = '#10b981';
+          timelineCtx.beginPath();
+          timelineCtx.moveTo(px - 5, rulerY);
+          timelineCtx.lineTo(px + 5, rulerY);
+          timelineCtx.lineTo(px, rulerY + 7);
+          timelineCtx.fill();
+        }
+      }
+
+      // Drag & Paneo en Timeline
+      let tlDrag = null;
+      timelineCanvas.onwheel = e => {
+        e.preventDefault();
+        const vis = getVisibleDuration();
+        if (e.ctrlKey || e.altKey) {
+          const factor = e.deltaY < 0 ? 1.25 : 0.8;
+          tlZoom = clamp(Math.round(tlZoom * factor * 10) / 10, 1.0, 16.0);
+          $('labelTlZoom').textContent = tlZoom.toFixed(1) + 'x';
+        } else {
+          const deltaMs = (e.deltaY / timelineCanvas.clientWidth) * vis * 0.8;
+          tlScrollLeftMs = clamp(tlScrollLeftMs + deltaMs, 0, Math.max(0, state.durationMs - vis));
+        }
+      };
+
+      timelineCanvas.onpointerdown = e => {
+        const bcr = timelineCanvas.getBoundingClientRect();
+        const x = e.clientX - bcr.left;
+        const y = e.clientY - bcr.top;
+        const W = timelineCanvas.clientWidth;
+        const vis = getVisibleDuration();
+        const miniH = tlZoom > 1.05 ? 14 : 0;
+
+        timelineCanvas.setPointerCapture(e.pointerId);
+
+        if (miniH > 0 && y <= miniH) {
+          const target = (x / W) * state.durationMs;
+          tlScrollLeftMs = clamp(target - vis / 2, 0, state.durationMs - vis);
+          tlDrag = { type: 'mini' };
+          return;
+        }
+
+        if (e.button === 1 || e.button === 2 || e.altKey) {
+          tlDrag = { type: 'tl_pan', startX: e.clientX, initScroll: tlScrollLeftMs };
+          return;
+        }
+
+        const t = xToT(x, W);
+        const rulerY = miniH;
+
+        if (y >= rulerY + 74 && y <= rulerY + 112) {
+          const hitB = state.beats.find(b => Math.abs(tToX(b.timestampMs, W) - x) < 8);
+          if (hitB) {
+            tlDrag = { type: 'beat', b: hitB, pointerId: e.pointerId, moved: false };
+            return;
+          }
+        }
+
+        if (y >= rulerY + 114) {
+          for (const f of state.formations) {
+            const xA = tToX(f.startTimeMs, W);
+            const xH = tToX(f.startTimeMs + f.holdDurationMs, W);
+            const xT = tToX(f.startTimeMs + f.holdDurationMs + f.transitionDurationMs, W);
+            if (f.transitionDurationMs > 0 && Math.abs(x - xT) < 8) {
+              tlDrag = { type: 'trans', f, pointerId: e.pointerId };
+              return;
+            }
+            if (Math.abs(x - xH) < 8) {
+              tlDrag = { type: 'hold', f, pointerId: e.pointerId };
+              return;
+            }
+            if (x >= xA && x <= xT) {
+              selectedFormationId = f.id;
+              seek(f.startTimeMs);
+              tlDrag = { type: 'move_f', f, off: t - f.startTimeMs, pointerId: e.pointerId };
+              return;
+            }
+          }
+        }
+
+        tlDrag = { type: 'scrub', pointerId: e.pointerId };
+        seek(t);
+      };
+
+      timelineCanvas.onpointermove = e => {
+        if (!tlDrag) return;
+        const bcr = timelineCanvas.getBoundingClientRect();
+        const W = timelineCanvas.clientWidth;
+        const vis = getVisibleDuration();
+
+        if (tlDrag.type === 'mini') {
+          const target = ((e.clientX - bcr.left) / W) * state.durationMs;
+          tlScrollLeftMs = clamp(target - vis / 2, 0, state.durationMs - vis);
+          return;
+        }
+
+        if (tlDrag.type === 'tl_pan') {
+          const dx = e.clientX - tlDrag.startX;
+          const deltaMs = (dx / W) * vis;
+          tlScrollLeftMs = clamp(tlDrag.initScroll - deltaMs, 0, state.durationMs - vis);
+          return;
+        }
+
+        const t = xToT(e.clientX - bcr.left, W);
+
+        if (tlDrag.type === 'scrub') seek(t);
+        else if (tlDrag.type === 'beat') {
+          tlDrag.moved = true;
+          tlDrag.b.timestampMs = Math.round(t);
+        } else if (tlDrag.type === 'hold') {
+          tlDrag.f.holdDurationMs = Math.max(200, Math.round(t - tlDrag.f.startTimeMs));
+        } else if (tlDrag.type === 'trans') {
+          tlDrag.f.transitionDurationMs = Math.max(0, Math.round(t - (tlDrag.f.startTimeMs + tlDrag.f.holdDurationMs)));
+        } else if (tlDrag.type === 'move_f') {
+          tlDrag.f.startTimeMs = Math.max(0, Math.round(t - tlDrag.off));
+        }
+      };
+
+      timelineCanvas.onpointerup = () => {
+        if (tlDrag) {
+          if (tlDrag.type === 'beat' && !tlDrag.moved) seek(tlDrag.b.timestampMs);
+          state.beats.sort((a, b) => a.timestampMs - b.timestampMs);
+          state.formations.sort((a, b) => a.startTimeMs - b.startTimeMs);
+          tlDrag = null;
+          calcCollisions();
+          renderLists();
+          saveStorage();
+        }
+      };
+
+      timelineCanvas.ondblclick = e => {
+        const bcr = timelineCanvas.getBoundingClientRect();
+        const x = e.clientX - bcr.left;
+        const W = timelineCanvas.clientWidth;
+        const t = xToT(x, W);
+        addFormationAt(t);
+      };
+
+      // Controles Zoom Timeline
+      $('btnTlZoomIn').onclick = () => {
+        tlZoom = clamp(Math.round((tlZoom * 1.35) * 10) / 10, 1.0, 16.0);
+        $('labelTlZoom').textContent = tlZoom.toFixed(1) + 'x';
+      };
+      $('btnTlZoomOut').onclick = () => {
+        tlZoom = clamp(Math.round((tlZoom * 0.75) * 10) / 10, 1.0, 16.0);
+        if (tlZoom === 1.0) tlScrollLeftMs = 0;
+        $('labelTlZoom').textContent = tlZoom.toFixed(1) + 'x';
+      };
+      $('btnTlZoomFit').onclick = () => {
+        tlZoom = 1.0;
+        tlScrollLeftMs = 0;
+        $('labelTlZoom').textContent = '1.0x';
+      };
+
+      // 6. REDIMENSIONAMIENTO DE PANELES (SPLITTERS ADOBE STYLE)
+      let isResizingSide = false;
+      let isResizingTl = false;
+
+      $('splitterSidebar').onpointerdown = e => {
+        isResizingSide = true;
+        $('splitterSidebar').setPointerCapture(e.pointerId);
+      };
+      $('splitterTimeline').onpointerdown = e => {
+        isResizingTl = true;
+        $('splitterTimeline').setPointerCapture(e.pointerId);
+      };
+
+      window.addEventListener('pointermove', e => {
+        if (isResizingSide) {
+          const w = clamp(e.clientX, 180, 500);
+          $('choreographer-only').style.width = w + 'px';
+        }
+        if (isResizingTl) {
+          const h = clamp(window.innerHeight - e.clientY, 130, 400);
+          $('footerTimelineArea').style.height = h + 'px';
+        }
+      });
+
+      window.addEventListener('pointerup', () => {
+        isResizingSide = false;
+        isResizingTl = false;
+      });
+
+      // Intercambiar orden de secciones
+      let sectionsSwapped = false;
+      $('btnSwapSections').onclick = () => {
+        sectionsSwapped = !sectionsSwapped;
+        const parent = $('choreographer-only');
+        const dSec = $('sectionDancersContainer');
+        const fSec = $('sectionFormationsContainer');
+        if (sectionsSwapped) {
+          parent.insertBefore(fSec, dSec);
+        } else {
+          parent.insertBefore(dSec, fSec);
+        }
+      };
+
+      function addFormationAt(tMs) {
+        const poses = getDancersPose(tMs);
+        const p = {};
+        state.dancers.forEach(d => {
+          const q = poses[d.id] || { x: 0.5, y: 0.5, level: 'medio' };
+          p[d.id] = { x: q.x, y: q.y, level: q.level, curveOffset: { cx: 0, cy: 0 }, notes: '' };
+        });
+        const f = {
+          id: uid(),
+          name: 'Formación ' + (state.formations.length + 1),
+          startTimeMs: Math.round(tMs),
+          holdDurationMs: 2500,
+          transitionDurationMs: 2000,
+          positions: p
+        };
+        state.formations.push(f);
+        state.formations.sort((a, b) => a.startTimeMs - b.startTimeMs);
+        selectedFormationId = f.id;
+        calcCollisions();
+        renderLists();
+        saveStorage();
+      }
+
+      // 7. UI & LISTS
+      function renderLists() {
+        const curF = getActiveFormation();
+        $('dancersList').innerHTML = state.dancers.map(d => {
+          const isSel = d.id === selectedDancerId;
+          const pos = curF ? curF.positions[d.id] : null;
+          const lvl = pos ? pos.level : d.defaultLevel;
+          return `
+            <div class="item-row ${isSel ? 'selected' : ''}" data-did="${d.id}">
+              <input type="color" data-k="color" value="${d.color}" class="w-5 h-5 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0">
+              <input type="text" data-k="name" value="${esc(d.name)}" class="w-20 flex-1">
+              <select data-k="lvl">
+                ${LEVELS.map(l => `<option value="${l}" ${lvl === l ? 'selected' : ''}>${l[0].toUpperCase()}</option>`).join('')}
+              </select>
+              ${state.dancers.length > 1 ? `<button data-k="del" class="text-rose-400 px-1 font-bold">✕</button>` : ''}
+            </div>
+          `;
+        }).join('');
+
+        $('formationsList').innerHTML = state.formations.map(f => {
+          const isSel = f.id === selectedFormationId;
+          return `
+            <div class="item-row ${isSel ? 'selected' : ''}" data-fid="${f.id}">
+              <input type="text" data-k="name" value="${esc(f.name)}" class="w-16 flex-1">
+              <input type="number" step="100" min="0" data-k="h" value="${f.holdDurationMs}" class="w-14 text-center text-violet-300">
+              <input type="number" step="100" min="0" data-k="t" value="${f.transitionDurationMs}" class="w-14 text-center text-cyan-300">
+              ${state.formations.length > 1 ? `<button data-k="del" class="text-rose-400 px-1 font-bold">✕</button>` : ''}
+            </div>
+          `;
+        }).join('');
+
+        $('selectDancerIdentity').innerHTML = state.dancers.map(d =>
+          `<option value="${d.id}" ${d.id === selectedDancerId ? 'selected' : ''}>#${d.slotNumber} - ${esc(d.name)}</option>`
+        ).join('');
+      }
+
+      $('dancersList').onclick = e => {
+        const row = e.target.closest('[data-did]');
+        if (!row) return;
+        const id = row.dataset.did;
+        if (e.target.dataset.k === 'del') {
+          state.dancers = state.dancers.filter(d => d.id !== id);
+          state.formations.forEach(f => delete f.positions[id]);
+          if (selectedDancerId === id) selectedDancerId = state.dancers[0]?.id || null;
+          calcCollisions();
+          saveStorage();
+        } else if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+          selectedDancerId = id;
+        }
+        renderLists();
+      };
+
+      $('dancersList').onchange = e => {
+        const row = e.target.closest('[data-did]');
+        if (!row) return;
+        const d = state.dancers.find(x => x.id === row.dataset.did);
+        const k = e.target.dataset.k;
+        if (k === 'color') d.color = e.target.value;
+        if (k === 'name') d.name = e.target.value;
+        if (k === 'lvl') {
+          d.defaultLevel = e.target.value;
+          const curF = getActiveFormation();
+          if (curF && curF.positions[d.id]) curF.positions[d.id].level = e.target.value;
+        }
+        saveStorage();
+        renderLists();
+      };
+
+      $('formationsList').onclick = e => {
+        const row = e.target.closest('[data-fid]');
+        if (!row) return;
+        const fid = row.dataset.fid;
+        if (e.target.dataset.k === 'del') {
+          if (state.formations.length > 1) {
+            state.formations = state.formations.filter(f => f.id !== fid);
+            selectedFormationId = state.formations[0].id;
+            calcCollisions();
+            saveStorage();
+            renderLists();
+          }
+          return;
+        }
+        if (e.target.tagName === 'INPUT') return;
+        selectedFormationId = fid;
+        seek(getActiveFormation().startTimeMs);
+        renderLists();
+      };
+
+      $('formationsList').onchange = e => {
+        const row = e.target.closest('[data-fid]');
+        if (!row) return;
+        const f = state.formations.find(x => x.id === row.dataset.fid);
+        const k = e.target.dataset.k;
+        if (k === 'name') f.name = e.target.value;
+        if (k === 'h') f.holdDurationMs = Math.max(0, +e.target.value || 0);
+        if (k === 't') f.transitionDurationMs = Math.max(0, +e.target.value || 0);
+        calcCollisions();
+        saveStorage();
+      };
+
+      $('selectDancerIdentity').onchange = e => {
+        selectedDancerId = e.target.value;
+        renderLists();
+      };
+
+      $('btnAddDancer').onclick = () => {
+        const n = state.dancers.length + 1;
+        const d = { id: uid(), slotNumber: n, name: 'Bailarín ' + n, color: COLORS[(n - 1) % COLORS.length], group: 'Alfa', defaultLevel: 'medio' };
+        state.dancers.push(d);
+        state.formations.forEach(f => f.positions[d.id] = { x: 0.5, y: 0.5, level: 'medio', curveOffset: { cx: 0, cy: 0 }, notes: '' });
+        selectedDancerId = d.id;
+        calcCollisions();
+        saveStorage();
+        renderLists();
+      };
+
+      $('btnAddFormation').onclick = () => addFormationAt(currentTimeMs);
+
+      $('btnModeDir').onclick = () => {
+        viewMode = 'choreographer';
+        document.body.classList.remove('view-dan');
+        $('btnModeDir').classList.add('active');
+        $('btnModeDan').classList.remove('active');
+      };
+
+      $('btnModeDan').onclick = () => {
+        viewMode = 'dancer';
+        document.body.classList.add('view-dan');
+        $('btnModeDan').classList.add('active');
+        $('btnModeDir').classList.remove('active');
+        if (!selectedDancerId) selectedDancerId = state.dancers[0]?.id;
+        renderLists();
+      };
+
+      $('btnMirror').onclick = () => {
+        isMirror = !isMirror;
+        $('btnMirror').classList.toggle('cyan-active', isMirror);
+      };
+
+      $('btnShowPaths').onclick = () => {
+        showAllPaths = !showAllPaths;
+        $('btnShowPaths').classList.toggle('active', showAllPaths);
+      };
+
+      $('btnPlayPause').onclick = togglePlay;
+      $('btnStop').onclick = () => { pause(); seek(0); };
+      $('selectPlaybackRate').onchange = e => {
+        playbackRate = +e.target.value;
+        if (audioElement) audioElement.playbackRate = playbackRate;
+        t0 = performance.now();
+        c0 = currentTimeMs;
+      };
+
+      $('btnLoopPhrase').onclick = () => {
+        isLoopPhrase = !isLoopPhrase;
+        $('btnLoopPhrase').classList.toggle('active', isLoopPhrase);
+      };
+
+      $('btnRecordCounts').onclick = () => {
+        isRecordingCounts = !isRecordingCounts;
+        $('btnRecordCounts').classList.toggle('active', isRecordingCounts);
+      };
+
+      $('btnTapBeat').onclick = tapBeat;
+      $('btnResetCountToOne').onclick = () => { resetNextToOne = true; };
+      $('btnClearBeats').onclick = () => {
+        if (confirm('¿Borrar todos los conteos musicales?')) {
+          state.beats = [];
+          saveStorage();
+        }
+      };
+
+      $('btnUploadAudio').onclick = () => $('inputAudioFile').click();
+      $('inputAudioFile').onchange = async e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        pause();
+        const ctx = getAudioContext();
+        try {
+          const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+          state.durationMs = Math.round(buf.duration * 1000);
+          isAudioReal = true;
+          audioElement = new Audio(URL.createObjectURL(file));
+
+          const chan = buf.getChannelData(0);
+          const N = 1200;
+          const bs = Math.floor(chan.length / N) || 1;
+          waveformPeaks = [];
+          let maxVal = 0.001;
+          for (let i = 0; i < N; i++) {
+            let m = 0;
+            for (let j = i * bs; j < Math.min(chan.length, (i + 1) * bs); j += 4) {
+              m = Math.max(m, Math.abs(chan[j]));
+            }
+            waveformPeaks.push(m);
+            if (m > maxVal) maxVal = m;
+          }
+          waveformPeaks = waveformPeaks.map(p => p / maxVal);
+          $('checkMetronome').checked = false;
+          seek(0);
+          $('btnRecordCounts').classList.add('active');
+          isRecordingCounts = true;
+          calcCollisions();
+          saveStorage();
+        } catch(err) {
+          alert('No se pudo decodificar el archivo de audio.');
+        }
+        e.target.value = '';
+      };
+
+      $('btnSynthAudio').onclick = () => {
+        pause();
+        isAudioReal = false;
+        audioElement = null;
+        state.durationMs = Math.max(16000, state.durationMs);
+        generateBeats(500);
+        $('checkMetronome').checked = true;
+        seek(0);
+        saveStorage();
+      };
+
+      $('btnResetDemo').onclick = () => {
+        if (confirm('¿Restaurar la coreografía demo de 8 bailarines y 3 formaciones?')) {
+          pause();
+          isAudioReal = false;
+          audioElement = null;
+          initDemo();
+          seek(0);
+          renderLists();
+          saveStorage();
+        }
+      };
+
+      $('btnExportJson').onclick = () => {
+        const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'choreosync-pro-proyecto.json';
+        a.click();
+      };
+
+      $('btnImportJson').onclick = () => $('inputJsonFile').click();
+      $('inputJsonFile').onchange = async e => {
+        try {
+          const text = await e.target.files[0].text();
+          const j = JSON.parse(text);
+          if (!j.dancers || !j.formations) throw 0;
+          pause();
+          state = j;
+          state.beats = state.beats || [];
+          selectedFormationId = state.formations[0].id;
+          selectedDancerId = state.dancers[0].id;
+          seek(0);
+          synthWaveformPeaks();
+          calcCollisions();
+          renderLists();
+          saveStorage();
+        } catch(err) {
+          alert('Archivo de coreografía inválido.');
+        }
+        e.target.value = '';
+      };
+
+      // Modal Sala QR con Host configurable
+      function updateLiveQR() {
+        const host = $('inputHostIp').value.trim() || '172.17.23.194:5173';
+        const url = `http://${host}/?room=SALA-CHOREO-1&mode=dancer`;
+        $('inputLiveUrl').value = url;
+        drawSimpleQR($('qrCanvas'), url);
+      }
+
+      $('btnLiveRoom').onclick = () => {
+        $('liveModal').classList.remove('hidden');
+        updateLiveQR();
+      };
+      $('btnCloseModal').onclick = () => $('liveModal').classList.add('hidden');
+      $('btnUpdateHostIp').onclick = updateLiveQR;
+      $('btnCopyUrl').onclick = () => {
+        navigator.clipboard.writeText($('inputLiveUrl').value);
+        $('btnCopyUrl').textContent = '¡Copiado!';
+        setTimeout(() => $('btnCopyUrl').textContent = 'Copiar', 2000);
+      };
+
+      function drawSimpleQR(canvas, text) {
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const sz = 176;
+        canvas.width = sz * dpr;
+        canvas.height = sz * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        ctx.fillStyle = '#020617';
+        ctx.fillRect(0, 0, sz, sz);
+        ctx.fillStyle = '#22d3ee';
+
+        const drawFinder = (x, y) => {
+          ctx.fillRect(x, y, 38, 38);
+          ctx.fillStyle = '#020617';
+          ctx.fillRect(x + 5, y + 5, 28, 28);
+          ctx.fillStyle = '#22d3ee';
+          ctx.fillRect(x + 10, y + 10, 18, 18);
+        };
+        drawFinder(10, 10);
+        drawFinder(sz - 48, 10);
+        drawFinder(10, sz - 48);
+
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) hash = ((hash << 5) - hash) + text.charCodeAt(i);
+        for (let r = 0; r < 22; r++) {
+          for (let c = 0; c < 22; c++) {
+            if ((r < 7 && c < 7) || (r < 7 && c > 14) || (r > 14 && c < 7)) continue;
+            const bit = Math.abs(Math.sin(hash + r * 11 + c * 23)) > 0.46;
+            if (bit) ctx.fillRect(12 + c * 7, 12 + r * 7, 5, 5);
+          }
+        }
+      }
+
+      document.addEventListener('keydown', e => {
+        if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+        const k = e.key.toLowerCase();
+        if (e.code === 'Space' || k === 's') {
+          e.preventDefault();
+          isRecordingCounts ? tapBeat() : togglePlay();
+        } else if (k === 't') {
+          e.preventDefault();
+          tapBeat();
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const next = state.beats.find(b => b.timestampMs > currentTimeMs + 10);
+          if (next) seek(next.timestampMs);
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const prevs = state.beats.filter(b => b.timestampMs < currentTimeMs - 10);
+          if (prevs.length) seek(prevs[prevs.length - 1].timestampMs);
+          else seek(0);
+        }
+      });
+
+      // 8. LOOP A 60 FPS
+      function animLoop() {
+        if (isPlaying) {
+          if (isAudioReal && audioElement && !audioElement.paused) {
+            currentTimeMs = audioElement.currentTime * 1000;
+          } else {
+            currentTimeMs = c0 + (performance.now() - t0) * playbackRate;
+          }
+
+          if (isLoopPhrase) {
+            const curBeat = state.beats.reduce((acc, b) => b.timestampMs <= currentTimeMs + 10 ? b : acc, null);
+            if (curBeat) {
+              const phraseBeats = state.beats.filter(b => b.phraseIndex === curBeat.phraseIndex);
+              const nextPhraseBeat = state.beats.find(b => b.phraseIndex === curBeat.phraseIndex + 1);
+              const loopEnd = nextPhraseBeat ? nextPhraseBeat.timestampMs : state.durationMs;
+              if (currentTimeMs >= loopEnd && phraseBeats.length) {
+                seek(phraseBeats[0].timestampMs);
+              }
+            }
+          }
+
+          if (currentTimeMs >= state.durationMs) {
+            currentTimeMs = state.durationMs;
+            pause();
+          }
+
+          if ($('checkMetronome').checked) {
+            state.beats.forEach(b => {
+              if (b.timestampMs > lastTimeMs && b.timestampMs <= currentTimeMs) {
+                playBeatClick(b.countNumber);
+              }
+            });
+          }
+
+          // Auto-scroll timeline si aguja sale de vista
+          const vis = getVisibleDuration();
+          if (tlZoom > 1) {
+            if (currentTimeMs > tlScrollLeftMs + vis) {
+              tlScrollLeftMs = Math.min(state.durationMs - vis, currentTimeMs - vis * 0.2);
+            }
+          }
+
+          lastTimeMs = currentTimeMs;
+        }
+
+        drawStage();
+        drawTimeline();
+
+        const curB = state.beats.reduce((acc, b) => b.timestampMs <= currentTimeMs + 10 ? b : acc, null);
+        $('bigCountDisplay').textContent = curB ? `OCHO #${curB.phraseIndex} | TIEMPO ${curB.countNumber}` : 'OCHO #1 | TIEMPO 1';
+        $('timecodeDisplay').textContent = `${(currentTimeMs / 1000).toFixed(2)} / ${(state.durationMs / 1000).toFixed(1)}s`;
+        $('btnPlayPause').textContent = isPlaying ? '⏸ Pausa' : '▶ Play';
+
+        if (viewMode === 'dancer') {
+          const dancer = state.dancers.find(d => d.id === selectedDancerId);
+          if (dancer) {
+            $('dancerBadgeAvatar').style.backgroundColor = dancer.color;
+            $('dancerBadgeAvatar').textContent = dancer.slotNumber;
+            $('dancerCardName').textContent = dancer.name;
+            $('dancerCardBeat').textContent = curB ? `O${curB.phraseIndex} · T${curB.countNumber}` : 'O1 · T1';
+
+            const poses = getDancersPose(currentTimeMs);
+            const pose = poses[dancer.id];
+            if (pose) {
+              const zone = getStageZoneName(pose.x, pose.y);
+              $('dancerCardLevel').textContent = 'NIVEL: ' + pose.level.toUpperCase();
+              $('dancerCardText').textContent = `Estás en ${zone} (${pose.level}). ` + (pose.isMoving ? 'Desplazándote hacia tu próxima formación.' : 'Mantén tu lugar firme.');
+              $('dancerCardStatus').textContent = pose.isMoving ? 'En Movimiento' : 'Estático (Hold)';
+            }
+          }
+        }
+
+        requestAnimationFrame(animLoop);
+      }
+
+      state = loadStorage();
+      if (!state) initDemo();
+      else {
+        selectedFormationId = state.formations[0]?.id;
+        selectedDancerId = state.dancers[0]?.id;
+        synthWaveformPeaks();
+        calcCollisions();
+      }
+
+      if (new URLSearchParams(window.location.search).get('mode') === 'dancer') {
+        $('btnModeDan').click();
+      }
+
+      renderLists();
+      requestAnimationFrame(animLoop);
+    })();
+  </script>
+</body>
+</html>
