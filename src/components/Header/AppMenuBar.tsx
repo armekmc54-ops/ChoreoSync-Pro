@@ -15,7 +15,8 @@ import {
   Laptop,
   Undo2,
   Redo2,
-  FolderPlus
+  FolderPlus,
+  Music
 } from 'lucide-react';
 import { ChoreoSession, WorkspaceLayout, PanelId } from '../../types/choreo';
 
@@ -30,6 +31,7 @@ interface AppMenuBarProps {
   onSaveSession: () => void;
   onSaveSessionAs: () => void;
   onSaveToProjectFolder?: () => void;
+  onSaveSessionWithAudio?: () => void;
   onResetDemo: () => void;
   onAddDancer: () => void;
   onAddFormation: () => void;
@@ -54,6 +56,7 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
   onSaveSession,
   onSaveSessionAs,
   onSaveToProjectFolder,
+  onSaveSessionWithAudio,
   onResetDemo,
   onAddDancer,
   onAddFormation,
@@ -144,6 +147,16 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
                 >
                   <span className="flex items-center gap-2"><FolderPlus className="w-3.5 h-3.5 text-amber-400" /> Guardar en Carpeta de Proyecto...</span>
                   <span className="text-[10px] text-slate-500 font-mono">Carpeta</span>
+                </button>
+              )}
+              {onSaveSessionWithAudio && (
+                <button
+                  onClick={() => { onSaveSessionWithAudio(); setActiveMenu(null); }}
+                  className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-violet-600/30 hover:text-white transition"
+                  title="Exporta un archivo .choreo autónomo que incluye el archivo de música incrustado"
+                >
+                  <span className="flex items-center gap-2"><Music className="w-3.5 h-3.5 text-pink-400" /> Exportar con Audio Incrustado</span>
+                  <span className="text-[10px] text-pink-400 font-mono">Todo-en-Uno</span>
                 </button>
               )}
               <button

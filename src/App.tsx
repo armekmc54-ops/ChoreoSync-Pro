@@ -31,6 +31,12 @@ import {
   DANCER_COLORS 
 } from './utils/storage';
 import { globalAudioEngine, generateBeatsForDuration } from './utils/audioSynthesizer';
+import { 
+  saveAudioToIndexedDB, 
+  getAudioFromIndexedDB, 
+  blobToDataUri, 
+  dataUriToBlob 
+} from './utils/audioStorage';
 import { scanProjectCollisions } from './utils/collision';
 import { calculateDancersPose } from './utils/interpolation';
 import { realtimeManager } from './utils/realtime';
@@ -385,6 +391,32 @@ export const App: React.FC = () => {
     };
     saveSessionToLocalStorage(session);
   }, [project, layout, sessionName]);
+
+  // Restauración automática persistente de archivo de audio desde IndexedDB
+  useEffect(() => {
+    if (project.audioFileName && globalAudioEngine.isUsingSyntheticAudio()) {
+      let isCancelled = false;
+      (async () => {
+        const blob = 
+          (await getAudioFromIndexedDB(`session_audio_${sessionName}`)) ||
+          (await getAudioFromIndexedDB(`audio_${project.audioFileName}`)) ||
+          (await getAudioFromIndexedDB('last_active_audio'));
+
+        if (blob && !isCancelled) {
+          try {
+            const loaded = await globalAudioEngine.loadAudioFile(blob, project.audioFileName);
+            if (!isCancelled) {
+              setPeaks(loaded.peaks);
+              setIsMetronomeEnabled(false);
+            }
+          } catch (e) {
+            console.warn('Error cargando audio desde IndexedDB:', e);
+          }
+        }
+      })();
+      return () => { isCancelled = true; };
+    }
+  }, [project.audioFileName, sessionName]);
 
   // Encontrar el conteo activo actual
   const currentBeat = (project.beats || []).reduce<Beat | null>((acc, b) => {
@@ -1027,8 +1059,65 @@ export const App: React.FC = () => {
       setSelectedDancerId(loaded.project.dancers[0]?.id || null);
       handleSeek(0);
       broadcastFullState(loaded.project);
+
+      // Si el archivo .choreo contiene audio incrustado (paquete todo-en-uno autónomo)
+      if (loaded.embeddedAudio) {
+        try {
+          const blob = dataUriToBlob(loaded.embeddedAudio);
+          const fileName = loaded.project.audioFileName || 'audio_incrustado.mp3';
+          const audioRes = await globalAudioEngine.loadAudioFile(blob, fileName);
+          setPeaks(audioRes.peaks);
+          setIsMetronomeEnabled(false);
+          await saveAudioToIndexedDB(`session_audio_${loaded.name || sessionName}`, blob);
+          await saveAudioToIndexedDB(`audio_${fileName}`, blob);
+        } catch (e) {
+          console.warn('Error decodificando audio incrustado:', e);
+        }
+      } else if (loaded.project.audioFileName) {
+        // Buscar si ya lo tenemos guardado en IndexedDB local
+        const cachedBlob = 
+          (await getAudioFromIndexedDB(`session_audio_${loaded.name}`)) ||
+          (await getAudioFromIndexedDB(`audio_${loaded.project.audioFileName}`)) ||
+          (await getAudioFromIndexedDB('last_active_audio'));
+
+        if (cachedBlob) {
+          try {
+            const audioRes = await globalAudioEngine.loadAudioFile(cachedBlob, loaded.project.audioFileName);
+            setPeaks(audioRes.peaks);
+            setIsMetronomeEnabled(false);
+          } catch (e) {
+            console.warn('Error cargando audio desde IndexedDB:', e);
+          }
+        }
+      }
     } catch (err: any) {
       alert(err.message || 'Error abriendo archivo de sesión (.choreo).');
+    }
+  };
+
+  const handleSaveSessionWithAudio = async () => {
+    const currentBlob = globalAudioEngine.getCurrentAudioBlob();
+    if (!currentBlob || globalAudioEngine.isUsingSyntheticAudio()) {
+      alert('Para exportar un archivo Todo-en-Uno (.choreo), primero sube un archivo de música real (.mp3, .wav, .m4a) a la sesión.');
+      return;
+    }
+
+    try {
+      const dataUri = await blobToDataUri(currentBlob);
+      const session: ChoreoSession = {
+        version: '1.0.0',
+        name: sessionName,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        project: projectRef.current,
+        layout,
+        embeddedAudio: dataUri,
+      };
+
+      exportSessionToFile(session, `${sessionName}_con_musica`);
+      alert(`¡Sesión guardada como paquete Todo-en-Uno! El archivo "${sessionName}_con_musica.choreo" incluye la música incrustada en su interior. Puedes enviarlo por WhatsApp o abrirlo en cualquier equipo y la música sonará de inmediato sin necesidad de cargarla de nuevo.`);
+    } catch (err: any) {
+      alert('Error incrustando el audio: ' + (err.message || err));
     }
   };
 
@@ -1345,6 +1434,11 @@ export const App: React.FC = () => {
       setIsMetronomeEnabled(false);
       setIsRecordCountsMode(true);
 
+      // Guardar persistentemente en IndexedDB del navegador
+      await saveAudioToIndexedDB(`session_audio_${sessionName}`, file);
+      await saveAudioToIndexedDB(`audio_${file.name}`, file);
+      await saveAudioToIndexedDB('last_active_audio', file);
+
       setProject((prev) => {
         const newProj = {
           ...prev,
@@ -1572,6 +1666,7 @@ export const App: React.FC = () => {
         onSaveSession={handleSaveSession}
         onSaveSessionAs={handleSaveSessionAs}
         onSaveToProjectFolder={handleSaveToProjectFolder}
+        onSaveSessionWithAudio={handleSaveSessionWithAudio}
         onResetDemo={handleResetDemo}
         onAddDancer={handleAddDancer}
         onAddFormation={() => handleAddFormationAtTime(currentTimeMs)}
@@ -1590,6 +1685,8 @@ export const App: React.FC = () => {
         viewMode={viewMode}
         setViewMode={setViewMode}
         currentBeat={currentBeat}
+        audioFileName={project.audioFileName}
+        isSyntheticAudio={globalAudioEngine.isUsingSyntheticAudio()}
         onExportJson={handleSaveSession}
         onImportJson={handleOpenSession}
         onUploadAudio={handleUploadAudio}

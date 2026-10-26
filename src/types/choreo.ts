@@ -88,6 +88,7 @@ export interface ChoreoSession {
   updatedAt: string;
   project: ChoreoProject;
   layout?: WorkspaceLayout;
+  embeddedAudio?: string; // Data URI Base64 opcional para exportar un archivo .choreo todo-en-uno con música incrustada
 }
 
 export interface InterpolatedDancerState {

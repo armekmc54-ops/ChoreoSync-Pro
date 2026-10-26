@@ -18,6 +18,8 @@ interface HeaderProps {
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
   currentBeat: Beat | null;
+  audioFileName?: string;
+  isSyntheticAudio?: boolean;
   onExportJson: () => void;
   onImportJson: (file: File) => void;
   onUploadAudio: (file: File) => void;
@@ -31,6 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
   viewMode,
   setViewMode,
   currentBeat,
+  audioFileName,
+  isSyntheticAudio = true,
   onExportJson,
   onImportJson,
   onUploadAudio,
@@ -158,6 +162,27 @@ export const Header: React.FC<HeaderProps> = ({
               <Music className="w-3.5 h-3.5 text-violet-400" />
               <span>Subir audio</span>
             </button>
+
+            {audioFileName && (
+              <button
+                type="button"
+                onClick={() => audioInputRef.current?.click()}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition ${
+                  isSyntheticAudio
+                    ? 'bg-amber-950/60 border-amber-500/50 text-amber-300 hover:bg-amber-900/60 animate-pulse'
+                    : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40'
+                }`}
+                title={
+                  isSyntheticAudio 
+                    ? `Haz clic para reconectar el archivo de audio: "${audioFileName}"` 
+                    : `Audio vinculado y listo: ${audioFileName}`
+                }
+              >
+                <Music className="w-3 h-3 text-cyan-400" />
+                <span className="max-w-[120px] truncate">{audioFileName}</span>
+                <span className={`w-2 h-2 rounded-full ${isSyntheticAudio ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+              </button>
+            )}
 
             <button
               onClick={onSyntheticAudio}

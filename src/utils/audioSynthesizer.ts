@@ -6,9 +6,19 @@ export class AudioEngineCore {
   private audioSourceNode: MediaElementAudioSourceNode | null = null;
   private gainNode: GainNode | null = null;
   private isSynthetic = true;
+  private currentAudioBlob: Blob | null = null;
+  private currentAudioFileName = '';
 
   constructor() {
     // AudioContext se inicializa en la primera interacción del usuario para cumplir políticas del navegador
+  }
+
+  public getCurrentAudioBlob(): Blob | null {
+    return this.currentAudioBlob;
+  }
+
+  public getCurrentAudioFileName(): string {
+    return this.currentAudioFileName;
   }
 
   public getContext(): AudioContext {
@@ -75,7 +85,7 @@ export class AudioEngineCore {
   /**
    * Configura un archivo de audio real cargado por el usuario
    */
-  public async loadAudioFile(file: File): Promise<{
+  public async loadAudioFile(file: File | Blob, customName?: string): Promise<{
     durationMs: number;
     peaks: number[];
     audioUrl: string;
@@ -89,6 +99,9 @@ export class AudioEngineCore {
     const audioUrl = URL.createObjectURL(file);
 
     this.isSynthetic = false;
+    this.currentAudioBlob = file;
+    this.currentAudioFileName = customName || (file instanceof File ? file.name : 'audio_cargado.mp3');
+
     if (this.audioElement) {
       this.audioElement.pause();
       this.audioElement.src = '';
