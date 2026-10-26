@@ -12,16 +12,24 @@ import {
   Copy, 
   Check, 
   Sparkles,
-  Laptop
+  Laptop,
+  Undo2,
+  Redo2,
+  FolderPlus
 } from 'lucide-react';
 import { ChoreoSession, WorkspaceLayout, PanelId } from '../../types/choreo';
 
 interface AppMenuBarProps {
   sessionName: string;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onNewSession: () => void;
   onOpenSession: (file: File) => void;
   onSaveSession: () => void;
   onSaveSessionAs: () => void;
+  onSaveToProjectFolder?: () => void;
   onResetDemo: () => void;
   onAddDancer: () => void;
   onAddFormation: () => void;
@@ -37,10 +45,15 @@ interface AppMenuBarProps {
 
 export const AppMenuBar: React.FC<AppMenuBarProps> = ({
   sessionName,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   onNewSession,
   onOpenSession,
   onSaveSession,
   onSaveSessionAs,
+  onSaveToProjectFolder,
   onResetDemo,
   onAddDancer,
   onAddFormation,
@@ -101,13 +114,13 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
             Sesión
           </button>
           {activeMenu === 'file' && (
-            <div className="absolute left-0 top-full mt-1 w-56 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl py-1 z-50 text-xs">
+            <div className="absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl py-1 z-50 text-xs">
               <button
                 onClick={() => { onNewSession(); setActiveMenu(null); }}
                 className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-violet-600/30 hover:text-white transition"
               >
                 <span className="flex items-center gap-2"><FileText className="w-3.5 h-3.5 text-cyan-400" /> Nueva Sesión</span>
-                <span className="text-[10px] text-slate-500 font-mono">Ctrl+N</span>
+                <span className="text-[10px] text-slate-500 font-mono">Ctrl+U</span>
               </button>
               <button
                 onClick={() => { fileInputRef.current?.click(); setActiveMenu(null); }}
@@ -121,9 +134,18 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
                 onClick={() => { onSaveSession(); setActiveMenu(null); }}
                 className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-violet-600/30 hover:text-white transition"
               >
-                <span className="flex items-center gap-2"><Save className="w-3.5 h-3.5 text-emerald-400" /> Guardar Sesión (.choreo)</span>
+                <span className="flex items-center gap-2"><Save className="w-3.5 h-3.5 text-emerald-400" /> Guardar Sesión</span>
                 <span className="text-[10px] text-slate-500 font-mono">Ctrl+S</span>
               </button>
+              {onSaveToProjectFolder && (
+                <button
+                  onClick={() => { onSaveToProjectFolder(); setActiveMenu(null); }}
+                  className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-violet-600/30 hover:text-white transition"
+                >
+                  <span className="flex items-center gap-2"><FolderPlus className="w-3.5 h-3.5 text-amber-400" /> Guardar en Carpeta de Proyecto...</span>
+                  <span className="text-[10px] text-slate-500 font-mono">Carpeta</span>
+                </button>
+              )}
               <button
                 onClick={() => { onSaveSessionAs(); setActiveMenu(null); }}
                 className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-violet-600/30 hover:text-white transition"
@@ -154,7 +176,28 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
             Edición
           </button>
           {activeMenu === 'edit' && (
-            <div className="absolute left-0 top-full mt-1 w-60 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl py-1 z-50 text-xs">
+            <div className="absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl py-1 z-50 text-xs">
+              <button
+                disabled={!canUndo}
+                onClick={() => { onUndo?.(); setActiveMenu(null); }}
+                className={`w-full flex items-center justify-between px-3 py-1.5 transition ${
+                  canUndo ? 'hover:bg-violet-600/30 text-white cursor-pointer' : 'opacity-40 cursor-not-allowed text-slate-500'
+                }`}
+              >
+                <span className="flex items-center gap-2"><Undo2 className="w-3.5 h-3.5 text-cyan-400" /> Deshacer</span>
+                <span className="text-[10px] text-slate-500 font-mono">Ctrl+Z</span>
+              </button>
+              <button
+                disabled={!canRedo}
+                onClick={() => { onRedo?.(); setActiveMenu(null); }}
+                className={`w-full flex items-center justify-between px-3 py-1.5 transition ${
+                  canRedo ? 'hover:bg-violet-600/30 text-white cursor-pointer' : 'opacity-40 cursor-not-allowed text-slate-500'
+                }`}
+              >
+                <span className="flex items-center gap-2"><Redo2 className="w-3.5 h-3.5 text-cyan-400" /> Rehacer</span>
+                <span className="text-[10px] text-slate-500 font-mono">Ctrl+Y</span>
+              </button>
+              <div className="h-px bg-slate-800 my-1" />
               <button
                 onClick={() => { onSelectAllFormations(); setActiveMenu(null); }}
                 className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-violet-600/30 hover:text-white transition"
@@ -298,6 +341,31 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
             </div>
           )}
         </div>
+
+        {/* ACCIONES RÁPIDAS DESHACER / REHACER */}
+        <div className="h-4 w-px bg-slate-800 mx-1" />
+        <button
+          type="button"
+          disabled={!canUndo}
+          onClick={onUndo}
+          className={`p-1 rounded transition flex items-center gap-1 ${
+            canUndo ? 'text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer' : 'text-slate-600 cursor-not-allowed'
+          }`}
+          title="Deshacer cambio (Ctrl+Z)"
+        >
+          <Undo2 className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={!canRedo}
+          onClick={onRedo}
+          className={`p-1 rounded transition flex items-center gap-1 ${
+            canRedo ? 'text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer' : 'text-slate-600 cursor-not-allowed'
+          }`}
+          title="Rehacer cambio (Ctrl+Y)"
+        >
+          <Redo2 className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* Nombre de la Sesión Activa */}

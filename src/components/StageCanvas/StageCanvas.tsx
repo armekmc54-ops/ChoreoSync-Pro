@@ -3,7 +3,8 @@ import {
   Formation, 
   Dancer, 
   ViewMode, 
-  CollisionEvent 
+  CollisionEvent,
+  TrajectoryPathType 
 } from '../../types/choreo';
 import { 
   computeStageRect, 
@@ -30,6 +31,7 @@ interface StageCanvasProps {
   onSelectDancer: (dancerId: string | null) => void;
   onUpdateDancerPosition: (formationId: string, dancerId: string, normX: number, normY: number) => void;
   onUpdateDancerCurveOffset: (formationId: string, dancerId: string, cx: number, cy: number) => void;
+  onUpdateDancerPathType?: (formationId: string, dancerId: string, pathType: TrajectoryPathType) => void;
   onEndUpdateDancerPosition?: () => void;
   onCollisionChange?: (collisions: CollisionEvent[]) => void;
 }
@@ -46,6 +48,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
   onSelectDancer,
   onUpdateDancerPosition,
   onUpdateDancerCurveOffset,
+  onUpdateDancerPathType,
   onEndUpdateDancerPosition,
   onCollisionChange,
 }) => {
@@ -119,7 +122,8 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     from: { x: number; y: number },
     to: { x: number; y: number },
     ctrl: { x: number; y: number },
-    color: string
+    color: string,
+    pathType: TrajectoryPathType = 'curve'
   ) => {
     ctx.save();
     ctx.strokeStyle = color;
@@ -129,23 +133,40 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
-    ctx.quadraticCurveTo(ctrl.x, ctrl.y, to.x, to.y);
-    ctx.stroke();
+
+    let endAngle = 0;
+
+    if (pathType === 'straight') {
+      // Línea recta directa
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      endAngle = Math.atan2(to.y - from.y, to.x - from.x);
+    } else if (pathType === 'corner') {
+      // En escuadra / quiebre a 90 grados
+      ctx.lineTo(ctrl.x, ctrl.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      endAngle = Math.atan2(to.y - ctrl.y, to.x - ctrl.x);
+    } else {
+      // Curva ondulada cuadrática de Bézier
+      ctx.quadraticCurveTo(ctrl.x, ctrl.y, to.x, to.y);
+      ctx.stroke();
+      endAngle = Math.atan2(to.y - ctrl.y, to.x - ctrl.x);
+    }
 
     ctx.setLineDash([]);
 
     // Dibujar punta de flecha en el destino
-    const angle = Math.atan2(to.y - ctrl.y, to.x - ctrl.x);
     const arrowLen = Math.max(10, 12 * Math.min(1.4, zoom));
     ctx.beginPath();
     ctx.moveTo(to.x, to.y);
     ctx.lineTo(
-      to.x - arrowLen * Math.cos(angle - Math.PI / 7),
-      to.y - arrowLen * Math.sin(angle - Math.PI / 7)
+      to.x - arrowLen * Math.cos(endAngle - Math.PI / 7),
+      to.y - arrowLen * Math.sin(endAngle - Math.PI / 7)
     );
     ctx.lineTo(
-      to.x - arrowLen * Math.cos(angle + Math.PI / 7),
-      to.y - arrowLen * Math.sin(angle + Math.PI / 7)
+      to.x - arrowLen * Math.cos(endAngle + Math.PI / 7),
+      to.y - arrowLen * Math.sin(endAngle + Math.PI / 7)
     );
     ctx.closePath();
     ctx.fill();
@@ -278,15 +299,17 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
         const ctrlNorm = getControlPoint(posFrom, posTo);
         const sCtrl = toScreenCoords(ctrlNorm.x, ctrlNorm.y, rect, isMirror);
 
-        // Flecha Bézier
-        drawArrow(ctx, sFrom, sTo, sCtrl, dancer.color + 'aa');
+        const pathType = posFrom.pathType || 'curve';
 
-        // Punto de control para curvar (Cyan con borde blanco)
-        if (isSelected && viewMode === 'choreographer') {
+        // Flecha Bézier / Recta / En Escuadra
+        drawArrow(ctx, sFrom, sTo, sCtrl, dancer.color + 'aa', pathType);
+
+        // Punto de control para curvar o punto de quiebre en escuadra (Cyan o Ámbar con borde blanco)
+        if (isSelected && viewMode === 'choreographer' && pathType !== 'straight') {
           const ctrlR = Math.max(6, 8 * Math.min(1.5, zoom));
           ctx.beginPath();
           ctx.arc(sCtrl.x, sCtrl.y, ctrlR, 0, Math.PI * 2);
-          ctx.fillStyle = '#22d3ee';
+          ctx.fillStyle = pathType === 'corner' ? '#f59e0b' : '#22d3ee';
           ctx.fill();
           ctx.strokeStyle = '#ffffff';
           ctx.lineWidth = 2;
@@ -294,7 +317,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
           ctx.save();
           ctx.setLineDash([2 * zoom, 2 * zoom]);
-          ctx.strokeStyle = 'rgba(34, 211, 238, 0.4)';
+          ctx.strokeStyle = pathType === 'corner' ? 'rgba(245, 158, 11, 0.45)' : 'rgba(34, 211, 238, 0.4)';
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(sFrom.x, sFrom.y);
@@ -508,18 +531,21 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     }
 
     if (viewMode === 'choreographer') {
-      // 2. Clic en punto de control Bézier
-      if (selectedDancerId && activeFormation && nextFormation) {
-        const posFrom = activeFormation.positions[selectedDancerId];
-        const posTo = nextFormation.positions[selectedDancerId];
-        if (posFrom && posTo) {
+      // 2. Clic en punto de control Bézier / punto de quiebre en escuadra
+      if (activeFormation && nextFormation) {
+        for (const d of dancers) {
+          if (!showAllPaths && d.id !== selectedDancerId) continue;
+          const posFrom = activeFormation.positions[d.id];
+          const posTo = nextFormation.positions[d.id];
+          if (!posFrom || !posTo) continue;
           const ctrlNorm = getControlPoint(posFrom, posTo);
           const sCtrl = toScreenCoords(ctrlNorm.x, ctrlNorm.y, rect, isMirror);
           const distCtrl = Math.hypot(sCtrl.x - px, sCtrl.y - py);
           if (distCtrl <= 16) {
+            onSelectDancer(d.id);
             dragRef.current = {
               type: 'curve_control',
-              dancerId: selectedDancerId,
+              dancerId: d.id,
               pointerId: e.pointerId,
               startX: e.clientX,
               startY: e.clientY,
@@ -692,6 +718,51 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
           <Maximize2 className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* SELECTOR DE ESTILO DE RUTA (CURVA, RECTA O EN ESCUADRA) */}
+      {selectedDancerId && viewMode === 'choreographer' && activeFormation && nextFormation && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/95 backdrop-blur-md border border-slate-700/80 shadow-2xl text-xs">
+          <span className="text-[11px] text-cyan-400 font-bold uppercase tracking-wider pr-1">
+            Ruta #{dancers.find((d) => d.id === selectedDancerId)?.slotNumber || ''}:
+          </span>
+          <button
+            type="button"
+            onClick={() => onUpdateDancerPathType?.(selectedFormationId, selectedDancerId, 'curve')}
+            className={`px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 ${
+              (activeFormation.positions[selectedDancerId]?.pathType || 'curve') === 'curve'
+                ? 'bg-cyan-500 text-slate-950 shadow-sm shadow-cyan-500/40'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title="Trayectoria curva suave (Bézier)"
+          >
+            <span>∿</span> Curva
+          </button>
+          <button
+            type="button"
+            onClick={() => onUpdateDancerPathType?.(selectedFormationId, selectedDancerId, 'straight')}
+            className={`px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 ${
+              activeFormation.positions[selectedDancerId]?.pathType === 'straight'
+                ? 'bg-cyan-500 text-slate-950 shadow-sm shadow-cyan-500/40'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title="Línea recta directa sin desvío"
+          >
+            <span>—</span> Recta
+          </button>
+          <button
+            type="button"
+            onClick={() => onUpdateDancerPathType?.(selectedFormationId, selectedDancerId, 'corner')}
+            className={`px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 ${
+              activeFormation.positions[selectedDancerId]?.pathType === 'corner'
+                ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/40'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title="En escuadra / quiebre a 90° con punto de esquina arrastrable"
+          >
+            <span>⌐</span> En Escuadra
+          </button>
+        </div>
+      )}
 
       <canvas
         ref={canvasRef}

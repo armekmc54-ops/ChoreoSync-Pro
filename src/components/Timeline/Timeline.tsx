@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Formation, Beat } from '../../types/choreo';
+import { Formation, Beat, LoopRange } from '../../types/choreo';
 import { clamp } from '../../utils/interpolation';
 import { ZoomIn, ZoomOut, Maximize2, Trash2, ArrowRight } from 'lucide-react';
 
@@ -11,11 +11,16 @@ interface TimelineProps {
   peaks: number[];
   selectedFormationId: string;
   selectedFormationIds?: string[];
+  selectedBeatId?: string | null;
+  loopRange?: LoopRange | null;
   collisionTimes: number[];
   onSeek: (timeMs: number) => void;
   onSelectFormation: (formationId: string, isMulti?: boolean) => void;
   onSelectMultipleFormations?: (formationIds: string[]) => void;
   onDeleteFormations?: (formationIds: string[]) => void;
+  onSelectBeat?: (beatId: string | null) => void;
+  onDeleteBeat?: (beatId: string) => void;
+  onUpdateLoopRange?: (range: LoopRange | null) => void;
   onUpdateFormationTiming: (
     formationId: string,
     startTimeMs: number,
@@ -34,11 +39,16 @@ export const Timeline: React.FC<TimelineProps> = ({
   peaks,
   selectedFormationId,
   selectedFormationIds = [],
+  selectedBeatId = null,
+  loopRange,
   collisionTimes,
   onSeek,
   onSelectFormation,
   onSelectMultipleFormations,
   onDeleteFormations,
+  onSelectBeat,
+  onDeleteBeat,
+  onUpdateLoopRange,
   onUpdateFormationTiming,
   onUpdateBeatTimestamp,
   onAddFormationAtTime,
@@ -46,8 +56,17 @@ export const Timeline: React.FC<TimelineProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Zoom Horizontal y Paneo de Timeline
-  const [zoom, setZoom] = useState<number>(1.0); // 1.0x hasta 16.0x
+  const [zoom, setZoom] = useState<number>(1.0); // 1.0x hasta 20.0x
   const [scrollLeftMs, setScrollLeftMs] = useState<number>(0);
+  const [activeBeatId, setActiveBeatId] = useState<string | null>(selectedBeatId);
+
+  // Refs mutables para zoom/pan fluido en wheel sin reconstruir event listeners
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const scrollLeftMsRef = useRef(scrollLeftMs);
+  scrollLeftMsRef.current = scrollLeftMs;
+  const durationMsRef = useRef(durationMs);
+  durationMsRef.current = durationMs;
 
   // Caja de selección múltiple (Marquee)
   const [selectionBox, setSelectionBox] = useState<{
@@ -58,7 +77,7 @@ export const Timeline: React.FC<TimelineProps> = ({
   } | null>(null);
 
   const dragRef = useRef<{
-    type: 'scrub' | 'beat' | 'hold_handle' | 'trans_handle' | 'form_move' | 'minimap_scroll' | 'timeline_pan' | 'box_select';
+    type: 'scrub' | 'beat' | 'hold_handle' | 'trans_handle' | 'form_move' | 'minimap_scroll' | 'timeline_pan' | 'box_select' | 'loop_a' | 'loop_b';
     targetId?: string;
     targetIds?: string[];
     initialMs?: number;
@@ -100,7 +119,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     [scrollLeftMs, visibleDurationMs, durationMs]
   );
 
-  // PREVENCIÓN ESTRICTA DE ZOOM EN LA PESTAÑA DEL NAVEGADOR EN LAPTOPS
+  // ZOOM Y SCROLL ULTRA FLUIDO CON TOUCHPAD DE LAPTOP O RUEDA DE RATÓN (SIN TRABAS)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -109,35 +128,51 @@ export const Timeline: React.FC<TimelineProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      const vis = Math.max(500, durationMs / zoom);
+      const currentZoom = zoomRef.current;
+      const currentScroll = scrollLeftMsRef.current;
+      const dur = durationMsRef.current;
+      const vis = Math.max(500, dur / currentZoom);
+      const clientW = canvas.clientWidth || 800;
 
       if (e.ctrlKey || e.altKey) {
         // Zoom centrado en cursor
         const factor = e.deltaY < 0 ? 1.25 : 0.8;
-        setZoom((prev) => {
-          const next = clamp(Math.round(prev * factor * 10) / 10, 1.0, 16.0);
-          if (next === 1.0) {
-            setScrollLeftMs(0);
-          } else {
-            const newVis = durationMs / next;
-            const mouseRatio = (e.clientX - canvas.getBoundingClientRect().left) / canvas.clientWidth;
-            const mouseTime = scrollLeftMs + mouseRatio * vis;
-            setScrollLeftMs(clamp(mouseTime - mouseRatio * newVis, 0, durationMs - newVis));
-          }
-          return next;
-        });
+        const nextZoom = clamp(Math.round(currentZoom * factor * 10) / 10, 1.0, 20.0);
+        if (nextZoom === 1.0) {
+          setZoom(1.0);
+          setScrollLeftMs(0);
+        } else {
+          const newVis = dur / nextZoom;
+          const rect = canvas.getBoundingClientRect();
+          const mouseRatio = clamp((e.clientX - rect.left) / clientW, 0, 1);
+          const mouseTime = currentScroll + mouseRatio * vis;
+          const targetScroll = clamp(mouseTime - mouseRatio * newVis, 0, Math.max(0, dur - newVis));
+          setZoom(nextZoom);
+          setScrollLeftMs(targetScroll);
+        }
       } else {
-        // Desplazamiento horizontal
-        const deltaMs = (e.deltaY / canvas.clientWidth) * vis * 0.85;
-        setScrollLeftMs((prev) => clamp(prev + deltaMs, 0, Math.max(0, durationMs - vis)));
+        // Desplazamiento horizontal (detecta swipe horizontal de touchpad o rueda de ratón)
+        let delta = 0;
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+          delta = e.deltaX;
+        } else {
+          delta = e.deltaY;
+        }
+
+        if (e.deltaMode === 1) delta *= 20; // Líneas
+        else if (e.deltaMode === 2) delta *= clientW; // Páginas
+
+        const deltaMs = (delta / clientW) * vis * 0.75;
+        const maxScroll = Math.max(0, dur - vis);
+        setScrollLeftMs((prev) => clamp(prev + deltaMs, 0, maxScroll));
       }
     };
 
     canvas.addEventListener('wheel', handleNativeWheel, { passive: false });
     return () => canvas.removeEventListener('wheel', handleNativeWheel);
-  }, [zoom, scrollLeftMs, durationMs]);
+  }, []);
 
-  // TECLADO: ELIMINAR CON SUPR O BACKSPACE
+  // TECLADO: ELIMINAR CON SUPR O BACKSPACE (FORMACIONES O CONTEO SELECCIONADO)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
@@ -145,6 +180,13 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (activeBeatId && onDeleteBeat) {
+          e.preventDefault();
+          onDeleteBeat(activeBeatId);
+          setActiveBeatId(null);
+          return;
+        }
+
         const toDelete = selectedFormationIds.length > 0 
           ? selectedFormationIds 
           : (selectedFormationId ? [selectedFormationId] : []);
@@ -158,7 +200,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedFormationId, selectedFormationIds, onDeleteFormations]);
+  }, [selectedFormationId, selectedFormationIds, activeBeatId, onDeleteFormations, onDeleteBeat]);
 
   const handleZoomChange = (factor: number) => {
     setZoom((prev) => {
@@ -451,6 +493,43 @@ export const Timeline: React.FC<TimelineProps> = ({
       ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
     }
 
+    // 7.5 BUCLE PUNTO A - PUNTO B (LOOP A-B OVERLAY)
+    if (loopRange && loopRange.enabled) {
+      const xA = timeToX(loopRange.startMs, clientW);
+      const xB = timeToX(loopRange.endMs, clientW);
+      const minX = Math.min(xA, xB);
+      const loopW = Math.max(2, Math.abs(xB - xA));
+
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.18)';
+      ctx.fillRect(minX, rulerY, loopW, clientH - rulerY);
+
+      // Línea y Bandera A
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(xA, rulerY);
+      ctx.lineTo(xA, clientH);
+      ctx.stroke();
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(xA - 8, rulerY, 16, 14);
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('A', xA, rulerY + 10);
+
+      // Línea y Bandera B
+      ctx.beginPath();
+      ctx.moveTo(xB, rulerY);
+      ctx.lineTo(xB, clientH);
+      ctx.stroke();
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(xB - 8, rulerY, 16, 14);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText('B', xB, rulerY + 10);
+    }
+
     // 8. AGUJA DE REPRODUCCIÓN (PLAYHEAD VERDE)
     const playheadX = timeToX(currentTimeMs, clientW);
     if (playheadX >= -5 && playheadX <= clientW + 5) {
@@ -522,6 +601,20 @@ export const Timeline: React.FC<TimelineProps> = ({
       return;
     }
 
+    // Clic en Banderas de Bucle A-B
+    if (loopRange && loopRange.enabled) {
+      const xA = timeToX(loopRange.startMs, w);
+      const xB = timeToX(loopRange.endMs, w);
+      if (Math.abs(x - xA) <= 12 && y <= rulerY + 22) {
+        dragRef.current = { type: 'loop_a', pointerId: e.pointerId };
+        return;
+      }
+      if (Math.abs(x - xB) <= 12 && y <= rulerY + 22) {
+        dragRef.current = { type: 'loop_b', pointerId: e.pointerId };
+        return;
+      }
+    }
+
     // Paneo con botón secundario o botón central
     if (e.button === 1 || e.button === 2) {
       dragRef.current = {
@@ -537,8 +630,10 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     // 1. Pista de Conteos (Y: rulerY + 68 a rulerY + 104)
     if (y >= rulerY + 68 && y <= rulerY + 104) {
-      const hitBeat = beats.find((b) => Math.abs(timeToX(b.timestampMs, w) - x) < 8);
+      const hitBeat = beats.find((b) => Math.abs(timeToX(b.timestampMs, w) - x) < 10);
       if (hitBeat) {
+        setActiveBeatId(hitBeat.id);
+        if (onSelectBeat) onSelectBeat(hitBeat.id);
         dragRef.current = {
           type: 'beat',
           targetId: hitBeat.id,
@@ -546,6 +641,9 @@ export const Timeline: React.FC<TimelineProps> = ({
           hasMoved: false,
         };
         return;
+      } else {
+        setActiveBeatId(null);
+        if (onSelectBeat) onSelectBeat(null);
       }
     }
 
@@ -691,6 +789,16 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     const currentTime = xToTime(x, w);
 
+    if (dragRef.current.type === 'loop_a' && onUpdateLoopRange && loopRange) {
+      const newA = clamp(currentTime, 0, Math.max(0, loopRange.endMs - 150));
+      onUpdateLoopRange({ ...loopRange, startMs: newA });
+      return;
+    } else if (dragRef.current.type === 'loop_b' && onUpdateLoopRange && loopRange) {
+      const newB = clamp(currentTime, loopRange.startMs + 150, durationMs);
+      onUpdateLoopRange({ ...loopRange, endMs: newB });
+      return;
+    }
+
     if (dragRef.current.type === 'scrub') {
       onSeek(currentTime);
     } else if (dragRef.current.type === 'beat' && dragRef.current.targetId) {
@@ -711,27 +819,14 @@ export const Timeline: React.FC<TimelineProps> = ({
         onUpdateFormationTiming(f.id, f.startTimeMs, f.holdDurationMs, newTrans);
       } else if (dragRef.current.type === 'form_move' && dragRef.current.offsets) {
         dragRef.current.hasMoved = true;
-        // REGLA CRÍTICA: NO EMPALMAR FORMACIÓN CON FORMACIÓN
         const targetIds = dragRef.current.targetIds || [f.id];
 
         targetIds.forEach((id) => {
           const form = formations.find((item) => item.id === id);
           if (!form) return;
           const off = dragRef.current?.offsets?.[id] || 0;
-          let newStart = Math.max(0, Math.round(currentTime - off));
-
-          // Validación de no solapamiento con formaciones previas o siguientes que no estén seleccionadas
-          const idx = formations.indexOf(form);
-          const prevF = formations[idx - 1];
-          const nextF = formations[idx + 1];
-
-          if (prevF && !targetIds.includes(prevF.id)) {
-            newStart = Math.max(newStart, prevF.startTimeMs + prevF.holdDurationMs);
-          }
-          if (nextF && !targetIds.includes(nextF.id)) {
-            newStart = Math.min(newStart, nextF.startTimeMs - form.holdDurationMs);
-          }
-
+          // Libertad creativa completa para empalmar y encimar transiciones con formaciones
+          const newStart = clamp(Math.round(currentTime - off), 0, Math.max(0, durationMs - 500));
           onUpdateFormationTiming(form.id, newStart, form.holdDurationMs, form.transitionDurationMs);
         });
       }
@@ -770,6 +865,29 @@ export const Timeline: React.FC<TimelineProps> = ({
     const finalTime = snapBeat ? snapBeat.timestampMs : Math.round(clickedTime);
     onSeek(finalTime);
     onAddFormationAtTime(finalTime);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const w = canvas.clientWidth;
+    const minimapH = zoom > 1.05 ? 13 : 0;
+    const rulerY = minimapH;
+
+    // Clic derecho en pista de conteos para eliminar un marcador específico
+    if (y >= rulerY + 68 && y <= rulerY + 104) {
+      const hitBeat = beats.find((b) => Math.abs(timeToX(b.timestampMs, w) - x) < 12);
+      if (hitBeat && onDeleteBeat) {
+        if (window.confirm(`¿Eliminar marcador del Ocho #${hitBeat.phraseIndex} - Tiempo ${hitBeat.countNumber}?`)) {
+          onDeleteBeat(hitBeat.id);
+          setActiveBeatId(null);
+        }
+      }
+    }
   };
 
   return (
@@ -819,7 +937,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onDoubleClick={handleDoubleClick}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={handleContextMenu}
         className="w-full block cursor-ew-resize touch-none"
         style={{ height: zoom > 1.05 ? '202px' : '190px' }}
       />

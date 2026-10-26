@@ -16,15 +16,24 @@ export interface Beat {
   countNumber: number; // 1 al 8
 }
 
+export type TrajectoryPathType = 'curve' | 'straight' | 'corner';
+
 export interface DancerPosition {
   x: number; // Normalizado 0.0 a 1.0
   y: number; // Normalizado 0.0 a 1.0
   level: DancerLevel;
   curveOffset: {
-    cx: number; // Desplazamiento del punto de control Bézier en X
-    cy: number; // Desplazamiento del punto de control Bézier en Y
+    cx: number; // Desplazamiento del punto de control Bézier o punto de quiebre en X
+    cy: number; // Desplazamiento del punto de control Bézier o punto de quiebre en Y
   };
+  pathType?: TrajectoryPathType; // 'curve' (curva ondulada), 'straight' (recta), 'corner' (en escuadra/ángulo)
   notes?: string;
+}
+
+export interface LoopRange {
+  startMs: number;
+  endMs: number;
+  enabled: boolean;
 }
 
 export interface Formation {
@@ -111,7 +120,7 @@ export interface CollisionEvent {
 
 export type ViewMode = 'choreographer' | 'dancer';
 
-export type SpeedRate = 0.5 | 0.75 | 1;
+export type SpeedRate = 0.25 | 0.5 | 0.75 | 1 | 1.25 | 1.5;
 
 export interface RealtimeSyncPayload {
   type: 'SYNC_TIME' | 'PLAY_STATE' | 'FULL_STATE' | 'FORMATION_SELECT' | 'DANCER_SELECT' | 'JOIN_ROOM' | 'REQUEST_SYNC';

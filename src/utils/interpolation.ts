@@ -102,9 +102,32 @@ export function calculateDancersPose(
       const rawProgress = clamp((timeMs - holdEndMs) / currentF.transitionDurationMs, 0, 1);
       const easedProgress = easeInOut(rawProgress);
       const ctrl = getControlPoint(currentPos, nextPos);
+      const pathType = currentPos.pathType || 'curve';
 
-      const x = quadraticBezier(currentPos.x, ctrl.x, nextPos.x, easedProgress);
-      const y = quadraticBezier(currentPos.y, ctrl.y, nextPos.y, easedProgress);
+      let x: number;
+      let y: number;
+
+      if (pathType === 'straight') {
+        // Línea recta directa sin desvío
+        x = (1 - easedProgress) * currentPos.x + easedProgress * nextPos.x;
+        y = (1 - easedProgress) * currentPos.y + easedProgress * nextPos.y;
+      } else if (pathType === 'corner') {
+        // En escuadra / ángulo recto hacia el punto de quiebre
+        if (easedProgress < 0.5) {
+          const subP = easedProgress * 2;
+          x = (1 - subP) * currentPos.x + subP * ctrl.x;
+          y = (1 - subP) * currentPos.y + subP * ctrl.y;
+        } else {
+          const subP = (easedProgress - 0.5) * 2;
+          x = (1 - subP) * ctrl.x + subP * nextPos.x;
+          y = (1 - subP) * ctrl.y + subP * nextPos.y;
+        }
+      } else {
+        // Curva cuadrática de Bézier ondulada
+        x = quadraticBezier(currentPos.x, ctrl.x, nextPos.x, easedProgress);
+        y = quadraticBezier(currentPos.y, ctrl.y, nextPos.y, easedProgress);
+      }
+
       const level = rawProgress >= 0.5 ? nextPos.level : currentPos.level;
 
       result[dancer.id] = {

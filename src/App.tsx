@@ -11,7 +11,9 @@ import {
   PanelId,
   DockZone,
   WorkspaceLayout,
-  ChoreoSession
+  ChoreoSession,
+  LoopRange,
+  TrajectoryPathType
 } from './types/choreo';
 import { 
   createDemoProject, 
@@ -55,7 +57,11 @@ import {
   HelpCircle, 
   X, 
   Keyboard, 
-  ShieldCheck 
+  ShieldCheck,
+  Disc,
+  Radio,
+  CornerDownRight,
+  Activity
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -87,6 +93,16 @@ export const App: React.FC = () => {
     timeline: true,
   });
 
+  // Pila de Historial para Deshacer / Rehacer (Undo / Redo - Ctrl+Z / Ctrl+Y)
+  const [historyPast, setHistoryPast] = useState<ChoreoProject[]>([]);
+  const [historyFuture, setHistoryFuture] = useState<ChoreoProject[]>([]);
+
+  // Función para registrar cambios en el historial
+  const pushHistory = useCallback((projToSave: ChoreoProject) => {
+    setHistoryPast((past) => [...past.slice(-40), JSON.parse(JSON.stringify(projToSave))]);
+    setHistoryFuture([]);
+  }, []);
+
   // Estados de arrastre con Snap Layouts estilo Windows 11
   const [isDraggingSnap, setIsDraggingSnap] = useState<boolean>(false);
   const [activeDragPanel, setActiveDragPanel] = useState<PanelId | null>(null);
@@ -117,6 +133,15 @@ export const App: React.FC = () => {
   const [isMetronomeEnabled, setIsMetronomeEnabled] = useState<boolean>(true);
   const [isRecordCountsMode, setIsRecordCountsMode] = useState<boolean>(false);
 
+  // Bucle A-B (Loop de Punto A a Punto B)
+  const [loopRange, setLoopRange] = useState<LoopRange>({
+    startMs: 0,
+    endMs: 0,
+    enabled: false,
+  });
+  const loopRangeRef = useRef<LoopRange>(loopRange);
+  loopRangeRef.current = loopRange;
+
   // Selecciones activas
   const [selectedFormationId, setSelectedFormationId] = useState<string>(() => project.formations[0]?.id || '');
   const [selectedFormationIds, setSelectedFormationIds] = useState<string[]>(() => 
@@ -134,57 +159,69 @@ export const App: React.FC = () => {
   // Dimensiones de paneles resizables
   const [sidebarWidth, setSidebarWidth] = useState<number>(270);
   const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(270);
-  const [timelineHeight, setTimelineHeight] = useState<number>(190);
+  const [timelineHeight, setTimelineHeight] = useState<number>(200);
 
-  // Redimensionamiento interactivo de paneles (Splitters)
-  const isResizingSidebar = useRef(false);
-  const isResizingRightSidebar = useRef(false);
-  const isResizingTimeline = useRef(false);
+  // Manejador de archivo abierto directamente del sistema (File System Access API)
+  const fileHandleRef = useRef<any>(null);
+
+  // Redimensionamiento interactivo de paneles (Splitters limpios basados en window events)
+  const startResizeTimeline = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = timelineHeight;
+    const isTop = layout.panels.timeline.dock === 'top';
+
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      const deltaY = moveEvt.clientY - startY;
+      const newHeight = isTop ? startH + deltaY : startH - deltaY;
+      setTimelineHeight(Math.max(120, Math.min(500, newHeight)));
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
 
   const startResizeSidebar = (e: React.PointerEvent) => {
-    isResizingSidebar.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      const deltaX = moveEvt.clientX - startX;
+      setSidebarWidth(Math.max(180, Math.min(500, startW + deltaX)));
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
   };
 
   const startResizeRightSidebar = (e: React.PointerEvent) => {
-    isResizingRightSidebar.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = rightSidebarWidth;
 
-  const startResizeTimeline = (e: React.PointerEvent) => {
-    isResizingTimeline.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      const deltaX = startX - moveEvt.clientX;
+      setRightSidebarWidth(Math.max(180, Math.min(500, startW + deltaX)));
+    };
 
-  const handlePointerMoveGlobal = (e: React.PointerEvent) => {
-    if (isResizingSidebar.current) {
-      setSidebarWidth(Math.max(180, Math.min(500, e.clientX)));
-    }
-    if (isResizingRightSidebar.current) {
-      setRightSidebarWidth(Math.max(180, Math.min(500, window.innerWidth - e.clientX)));
-    }
-    if (isResizingTimeline.current) {
-      if (layout.panels.timeline.dock === 'top') {
-        setTimelineHeight(Math.max(120, Math.min(400, e.clientY - 60)));
-      } else {
-        setTimelineHeight(Math.max(120, Math.min(400, window.innerHeight - e.clientY)));
-      }
-    }
-  };
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
 
-  const handlePointerUpGlobal = (e: React.PointerEvent) => {
-    if (isResizingSidebar.current) {
-      isResizingSidebar.current = false;
-      try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-    }
-    if (isResizingRightSidebar.current) {
-      isResizingRightSidebar.current = false;
-      try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-    }
-    if (isResizingTimeline.current) {
-      isResizingTimeline.current = false;
-      try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-    }
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
   };
 
   // Datos derivados
@@ -450,11 +487,46 @@ export const App: React.FC = () => {
     handleSeek(0);
   }, [handleSeek]);
 
-  // TAP-TO-BEAT (Marcar conteo en vivo de 1 a 8)
+  // Controles de Bucle A-B (Loop A-B)
+  const handleSetLoopPointA = () => {
+    const cur = Math.round(currentTimeMsRef.current);
+    setLoopRange((prev) => {
+      const end = prev.endMs > cur ? prev.endMs : Math.min(projectRef.current.durationMs, cur + 4000);
+      return { startMs: cur, endMs: end, enabled: true };
+    });
+  };
+
+  const handleSetLoopPointB = () => {
+    const cur = Math.round(currentTimeMsRef.current);
+    setLoopRange((prev) => {
+      const start = prev.startMs < cur ? prev.startMs : Math.max(0, cur - 4000);
+      return { startMs: start, endMs: cur, enabled: true };
+    });
+  };
+
+  const handleToggleLoopRange = () => {
+    setLoopRange((prev) => {
+      if (prev.endMs <= prev.startMs) {
+        const start = Math.max(0, Math.round(currentTimeMsRef.current - 1000));
+        const end = Math.min(projectRef.current.durationMs, start + 5000);
+        return { startMs: start, endMs: end, enabled: true };
+      }
+      return { ...prev, enabled: !prev.enabled };
+    });
+  };
+
+  const handleClearLoopRange = () => {
+    setLoopRange({ startMs: 0, endMs: 0, enabled: false });
+  };
+
+  // TAP-TO-BEAT (Marcar conteo en vivo de 1 a 8 con orden cronológico inteligente)
   const handleTapBeat = useCallback(() => {
     const cur = Math.round(currentTimeMsRef.current);
     const beats = [...(projectRef.current.beats || [])];
-    const lastBeat = beats[beats.length - 1];
+
+    // Buscar el último conteo inmediatamente anterior al cabezal de reproducción actual
+    const priorBeats = beats.filter((b) => b.timestampMs <= cur + 10);
+    const lastBeat = priorBeats.length > 0 ? priorBeats[priorBeats.length - 1] : null;
 
     let countNumber = 1;
     let phraseIndex = 1;
@@ -476,17 +548,28 @@ export const App: React.FC = () => {
     }
 
     const newBeat: Beat = {
-      id: 'beat_' + Date.now(),
+      id: 'beat_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       timestampMs: cur,
       phraseIndex,
       countNumber,
     };
 
+    pushHistory(projectRef.current);
     const updated = [...beats, newBeat].sort((a, b) => a.timestampMs - b.timestampMs);
     const newProj = { ...projectRef.current, beats: updated };
     setProject(newProj);
     broadcastFullState(newProj);
-  }, [broadcastFullState]);
+  }, [broadcastFullState, pushHistory]);
+
+  const handleDeleteBeat = (beatId: string) => {
+    pushHistory(projectRef.current);
+    setProject((prev) => {
+      const updated = (prev.beats || []).filter((b) => b.id !== beatId);
+      const newProj = { ...prev, beats: updated };
+      broadcastFullState(newProj);
+      return newProj;
+    });
+  };
 
   const handleResetCountToOne = () => {
     animTimeRef.current.resetNextCount = true;
@@ -494,11 +577,33 @@ export const App: React.FC = () => {
 
   const handleClearBeats = () => {
     if (window.confirm('¿Deseas borrar todos los conteos marcados?')) {
+      pushHistory(projectRef.current);
       const newProj = { ...projectRef.current, beats: [] };
       setProject(newProj);
       broadcastFullState(newProj);
     }
   };
+
+  // Deshacer / Rehacer (Undo / Redo)
+  const handleUndo = useCallback(() => {
+    if (historyPast.length === 0) return;
+    const previous = historyPast[historyPast.length - 1];
+    const newPast = historyPast.slice(0, -1);
+    setHistoryFuture((fut) => [JSON.parse(JSON.stringify(projectRef.current)), ...fut]);
+    setHistoryPast(newPast);
+    setProject(previous);
+    broadcastFullState(previous);
+  }, [historyPast, broadcastFullState]);
+
+  const handleRedo = useCallback(() => {
+    if (historyFuture.length === 0) return;
+    const next = historyFuture[0];
+    const newFuture = historyFuture.slice(1);
+    setHistoryPast((past) => [...past, JSON.parse(JSON.stringify(projectRef.current))]);
+    setHistoryFuture(newFuture);
+    setProject(next);
+    broadcastFullState(next);
+  }, [historyFuture, broadcastFullState]);
 
   // Ciclo principal de animación a 60 FPS
   useEffect(() => {
@@ -509,6 +614,19 @@ export const App: React.FC = () => {
         const now = performance.now();
         const delta = (now - animTimeRef.current.t0) * playbackRateRef.current;
         let nextTime = animTimeRef.current.c0 + delta;
+
+        // Soporte bucle de Punto A a Punto B (Loop A-B)
+        if (loopRangeRef.current.enabled && loopRangeRef.current.endMs > loopRangeRef.current.startMs) {
+          if (nextTime >= loopRangeRef.current.endMs) {
+            nextTime = loopRangeRef.current.startMs;
+            animTimeRef.current.t0 = now;
+            animTimeRef.current.c0 = loopRangeRef.current.startMs;
+            const aud = globalAudioEngine.getAudioElement();
+            if (aud && !globalAudioEngine.isUsingSyntheticAudio()) {
+              aud.currentTime = loopRangeRef.current.startMs / 1000;
+            }
+          }
+        }
 
         // Soporte bucle por Ocho
         const curBeats = projectRef.current.beats || [];
@@ -582,6 +700,7 @@ export const App: React.FC = () => {
 
   // CRUD de Bailarines
   const handleAddDancer = () => {
+    pushHistory(projectRef.current);
     const nextSlot = project.dancers.length + 1;
     const color = DANCER_COLORS[(nextSlot - 1) % DANCER_COLORS.length];
     const newDancer: Dancer = {
@@ -618,6 +737,7 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateDancer = (dancerId: string, updates: Partial<Dancer>) => {
+    pushHistory(projectRef.current);
     setProject((prev) => {
       const newProj = {
         ...prev,
@@ -630,6 +750,7 @@ export const App: React.FC = () => {
 
   const handleDeleteDancer = (dancerId: string) => {
     if (project.dancers.length <= 1) return;
+    pushHistory(projectRef.current);
     const updatedFormations = project.formations.map((f) => {
       const pos = { ...f.positions };
       delete pos[dancerId];
@@ -653,6 +774,7 @@ export const App: React.FC = () => {
 
   // CRUD de Formaciones
   const handleAddFormationAtTime = (timeMs: number) => {
+    pushHistory(projectRef.current);
     const poses = calculateDancersPose(project.formations, project.dancers, timeMs);
     const newPositions: Record<string, DancerPosition> = {};
 
@@ -691,6 +813,7 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateFormation = (formationId: string, updates: Partial<Formation>) => {
+    pushHistory(projectRef.current);
     setProject((prev) => {
       const newProj = {
         ...prev,
@@ -705,6 +828,7 @@ export const App: React.FC = () => {
 
   const handleDeleteFormation = (formationId: string) => {
     if (project.formations.length <= 1) return;
+    pushHistory(projectRef.current);
     const updated = project.formations.filter((f) => f.id !== formationId);
     const newProj = {
       ...project,
@@ -723,6 +847,7 @@ export const App: React.FC = () => {
       alert('Debe quedar al menos una formación en el proyecto.');
       return;
     }
+    pushHistory(projectRef.current);
     const updated = project.formations.filter((f) => !formationIds.includes(f.id));
     const newProj = {
       ...project,
@@ -739,6 +864,7 @@ export const App: React.FC = () => {
     const form = project.formations.find((f) => f.id === targetId);
     if (!form) return;
 
+    pushHistory(projectRef.current);
     const newStartTime = form.startTimeMs + form.holdDurationMs + form.transitionDurationMs + 500;
     const duplicated: Formation = {
       ...form,
@@ -803,6 +929,7 @@ export const App: React.FC = () => {
   };
 
   const handleEndUpdateDancerPosition = () => {
+    pushHistory(projectRef.current);
     broadcastFullState(projectRef.current);
   };
 
@@ -812,6 +939,7 @@ export const App: React.FC = () => {
     cx: number,
     cy: number
   ) => {
+    pushHistory(projectRef.current);
     setProject((prev) => {
       const form = prev.formations.find((f) => f.id === formationId);
       if (!form || !form.positions[dancerId]) return prev;
@@ -836,10 +964,42 @@ export const App: React.FC = () => {
     });
   };
 
+  const handleUpdateDancerPathType = (
+    formationId: string,
+    dancerId: string,
+    pathType: TrajectoryPathType
+  ) => {
+    pushHistory(projectRef.current);
+    setProject((prev) => {
+      const form = prev.formations.find((f) => f.id === formationId);
+      if (!form || !form.positions[dancerId]) return prev;
+
+      const updatedPos = {
+        ...form.positions,
+        [dancerId]: {
+          ...form.positions[dancerId],
+          pathType,
+        },
+      };
+
+      const newProj = {
+        ...prev,
+        formations: prev.formations.map((f) =>
+          f.id === formationId ? { ...f, positions: updatedPos } : f
+        ),
+      };
+
+      broadcastFullState(newProj);
+      return newProj;
+    });
+  };
+
   // Manejo de Sesiones y Archivos
   const handleNewSession = () => {
     if (window.confirm('¿Crear una nueva sesión en blanco?')) {
       handleStop();
+      pushHistory(projectRef.current);
+      fileHandleRef.current = null;
       const blank = createBlankProject();
       const newLayout = getDefaultWorkspaceLayout();
       setProject(blank);
@@ -856,6 +1016,8 @@ export const App: React.FC = () => {
   const handleOpenSession = async (file: File) => {
     try {
       handleStop();
+      pushHistory(projectRef.current);
+      fileHandleRef.current = null;
       const loaded = await importSessionFromFile(file);
       setProject(loaded.project);
       if (loaded.layout) setLayout(loaded.layout);
@@ -870,23 +1032,88 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSaveSession = () => {
+  const handleSaveSession = async () => {
     const session: ChoreoSession = {
       version: '1.0.0',
       name: sessionName,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      project,
+      project: projectRef.current,
       layout,
     };
     saveSessionToLocalStorage(session);
+
+    // Si ya existe un handle de archivo vinculado (por haber guardado antes o abierto), escribir directamente (Ctrl+S instantáneo)
+    if (fileHandleRef.current) {
+      try {
+        const writable = await fileHandleRef.current.createWritable();
+        await writable.write(JSON.stringify(session, null, 2));
+        await writable.close();
+        return;
+      } catch (err) {
+        console.warn('Error guardando en archivo existente, abriendo selector:', err);
+      }
+    }
+
+    // Si el navegador soporta File System Access API
+    if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: `${sessionName.replace(/[^\w\s-]/gi, '_')}.choreo`,
+          types: [{
+            description: 'Proyecto ChoreoSync Pro (.choreo)',
+            accept: { 'application/json': ['.choreo', '.json'] },
+          }],
+        });
+        fileHandleRef.current = handle;
+        const writable = await handle.createWritable();
+        await writable.write(JSON.stringify(session, null, 2));
+        await writable.close();
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    // Fallback: descarga directa en navegador
     exportSessionToFile(session, sessionName);
+  };
+
+  const handleSaveToProjectFolder = async () => {
+    const session: ChoreoSession = {
+      version: '1.0.0',
+      name: sessionName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      project: projectRef.current,
+      layout,
+    };
+    saveSessionToLocalStorage(session);
+
+    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+        const fileName = `${sessionName.replace(/[^\w\s-]/gi, '_')}.choreo`;
+        const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+        fileHandleRef.current = fileHandle;
+        const writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(session, null, 2));
+        await writable.close();
+        alert(`¡Sesión guardada exitosamente en la carpeta de proyecto como "${fileName}"! A partir de ahora presionar Ctrl+S guardará automáticamente en este archivo sin ventanas de descarga.`);
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    handleSaveSession();
   };
 
   const handleSaveSessionAs = () => {
     const newName = window.prompt('Introduce el nombre para la sesión:', sessionName);
     if (newName && newName.trim()) {
       setSessionName(newName.trim());
+      fileHandleRef.current = null;
       const session: ChoreoSession = {
         version: '1.0.0',
         name: newName.trim(),
@@ -907,17 +1134,63 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Ctrl+S / Cmd+S -> Guardar sesión
+      // Ctrl+S / Cmd+S -> Guardar sesión directo
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         handleSaveSession();
         return;
       }
 
-      // Ctrl+N -> Nueva sesión
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+      // Ctrl+U -> Nueva sesión (solicitado por usuario)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u') {
         e.preventDefault();
         handleNewSession();
+        return;
+      }
+
+      // Ctrl+O -> Abrir sesión (.choreo)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        const input = document.querySelector<HTMLInputElement>('input[type="file"][accept*=".choreo"]');
+        if (input) input.click();
+        return;
+      }
+
+      // Ctrl+Z -> Deshacer
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Ctrl+Y o Ctrl+Shift+Z -> Rehacer
+      if (
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // Tecla A (sin modificadores) -> Fijar Punto A de Bucle
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        handleSetLoopPointA();
+        return;
+      }
+
+      // Tecla B (sin modificadores) -> Fijar Punto B de Bucle
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        handleSetLoopPointB();
+        return;
+      }
+
+      // Tecla L (sin modificadores) -> Alternar Bucle A-B
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        handleToggleLoopRange();
         return;
       }
 
@@ -933,6 +1206,15 @@ export const App: React.FC = () => {
         e.preventDefault();
         handleDuplicateFormation();
         return;
+      }
+
+      // Delete o Backspace -> Eliminar formaciones seleccionadas
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedFormationIds.length > 0) {
+          e.preventDefault();
+          handleDeleteFormations(selectedFormationIds);
+          return;
+        }
       }
 
       // Espacio o Tecla S -> Play/Pausa o Tap Beat
@@ -966,7 +1248,22 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [handleSaveSession, isRecordCountsMode, handleTapBeat, handleTogglePlay, project.beats, currentTimeMs, handleSeek]);
+  }, [
+    handleSaveSession, 
+    handleNewSession, 
+    handleUndo, 
+    handleRedo, 
+    handleDuplicateFormation, 
+    handleSelectAllFormations, 
+    handleDeleteFormations, 
+    selectedFormationIds, 
+    isRecordCountsMode, 
+    handleTapBeat, 
+    handleTogglePlay, 
+    project.beats, 
+    currentTimeMs, 
+    handleSeek
+  ]);
 
   const handleResetDemo = () => {
     if (window.confirm('¿Restaurar la coreografía demo completa (8 bailarines, 3 formaciones)?')) {
@@ -1170,6 +1467,7 @@ export const App: React.FC = () => {
         isLoopPhrase={isLoopPhrase}
         isMetronomeEnabled={isMetronomeEnabled}
         isRecordCountsMode={isRecordCountsMode}
+        loopRange={loopRange}
         onTogglePlay={handleTogglePlay}
         onStop={handleStop}
         onChangeRate={(rate) => {
@@ -1183,6 +1481,10 @@ export const App: React.FC = () => {
         onTapBeat={handleTapBeat}
         onResetCountToOne={handleResetCountToOne}
         onClearBeats={handleClearBeats}
+        onSetLoopPointA={handleSetLoopPointA}
+        onSetLoopPointB={handleSetLoopPointB}
+        onToggleLoopRange={handleToggleLoopRange}
+        onClearLoopRange={handleClearLoopRange}
       />
 
       <div className="flex-1 min-h-0">
@@ -1195,6 +1497,7 @@ export const App: React.FC = () => {
           selectedFormationId={selectedFormationId}
           selectedFormationIds={selectedFormationIds}
           collisionTimes={collisionTimes}
+          loopRange={loopRange}
           onSeek={(t) => handleSeek(t)}
           onSelectFormation={(fid, isMulti) => {
             setSelectedFormationId(fid);
@@ -1213,6 +1516,8 @@ export const App: React.FC = () => {
             if (fids.length > 0) setSelectedFormationId(fids[0]);
           }}
           onDeleteFormations={handleDeleteFormations}
+          onDeleteBeat={handleDeleteBeat}
+          onUpdateLoopRange={(range) => setLoopRange(range || { startMs: 0, endMs: 0, enabled: false })}
           onUpdateFormationTiming={(fid, s, h, t) => {
             handleUpdateFormation(fid, {
               startTimeMs: s,
@@ -1221,8 +1526,9 @@ export const App: React.FC = () => {
             });
           }}
           onUpdateBeatTimestamp={(bid, t) => {
+            pushHistory(projectRef.current);
             setProject((prev) => {
-              const updated = prev.beats.map((b) =>
+              const updated = (prev.beats || []).map((b) =>
                 b.id === bid ? { ...b, timestampMs: t } : b
               );
               return {
@@ -1257,10 +1563,15 @@ export const App: React.FC = () => {
       {/* 1. BARRA SUPERIOR DE APLICACIÓN ESTILO ADOBE AUDITION / PREMIERE (.choreo) */}
       <AppMenuBar
         sessionName={sessionName}
+        canUndo={historyPast.length > 0}
+        canRedo={historyFuture.length > 0}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
         onNewSession={handleNewSession}
         onOpenSession={handleOpenSession}
         onSaveSession={handleSaveSession}
         onSaveSessionAs={handleSaveSessionAs}
+        onSaveToProjectFolder={handleSaveToProjectFolder}
         onResetDemo={handleResetDemo}
         onAddDancer={handleAddDancer}
         onAddFormation={() => handleAddFormationAtTime(currentTimeMs)}
@@ -1303,11 +1614,7 @@ export const App: React.FC = () => {
       )}
 
       {/* 4. ÁREA CENTRAL (ESPACIO DE TRABAJO MODULAR ADOBE + SNAP LAYOUTS) */}
-      <main 
-        onPointerMove={handlePointerMoveGlobal}
-        onPointerUp={handlePointerUpGlobal}
-        className="flex flex-1 min-h-0 overflow-hidden relative select-none"
-      >
+      <main className="flex flex-1 min-h-0 overflow-hidden relative select-none">
         {/* PANEL LATERAL IZQUIERDO */}
         {viewMode === 'choreographer' && (layout.panels.dancers.dock === 'left' || layout.panels.formations.dock === 'left') && (
           <>
@@ -1382,6 +1689,50 @@ export const App: React.FC = () => {
             )}
           </div>
 
+          {/* BANNER FLOTANTE HUD: ASISTENTE DE GRABACIÓN DE CONTEOS 1 AL 8 */}
+          {isRecordCountsMode && (
+            <div className="absolute top-12 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 bg-slate-900/95 border-2 border-rose-500 rounded-2xl shadow-2xl backdrop-blur-md animate-fade-in text-xs max-w-xl text-center">
+              <span className="relative flex h-3 w-3 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+              </span>
+              <div className="flex flex-col text-left">
+                <span className="font-extrabold text-rose-300 tracking-wide uppercase text-[11px]">
+                  Modo Grabación de Conteos (1 al 8) Activo
+                </span>
+                <span className="text-[11px] text-slate-300">
+                  Presiona <strong className="text-cyan-300 bg-slate-800 px-1.5 py-0.5 rounded font-mono">ESPACIO</strong> con la música sonando para registrar cada tiempo. Clic derecho en un conteo para borrarlo.
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleTapBeat}
+                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg shadow-sm active:scale-95 transition"
+                  title="Marcar tiempo actual"
+                >
+                  Pisar Tiempo
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetCountToOne}
+                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 rounded-lg transition"
+                  title="Forzar el próximo conteo a iniciar en 1 (Nuevo Ocho)"
+                >
+                  Nuevo 1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsRecordCountsMode(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                  title="Cerrar modo grabación"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 min-h-0 relative">
             <StageCanvas
               formations={project.formations}
@@ -1395,6 +1746,7 @@ export const App: React.FC = () => {
               onSelectDancer={setSelectedDancerId}
               onUpdateDancerPosition={handleUpdateDancerPosition}
               onUpdateDancerCurveOffset={handleUpdateDancerCurveOffset}
+              onUpdateDancerPathType={handleUpdateDancerPathType}
               onEndUpdateDancerPosition={handleEndUpdateDancerPosition}
               onCollisionChange={setActiveCollisions}
             />
@@ -1454,8 +1806,6 @@ export const App: React.FC = () => {
           />
           <footer 
             style={{ height: `${timelineHeight}px` }}
-            onPointerMove={handlePointerMoveGlobal}
-            onPointerUp={handlePointerUpGlobal}
             className="shrink-0 flex flex-col bg-slate-900 border-t border-slate-800 z-20"
           >
             {renderTimelineContent()}
@@ -1559,7 +1909,27 @@ export const App: React.FC = () => {
               </div>
               <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
                 <span className="text-slate-300">Nueva Sesión en blanco</span>
-                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-slate-300">Ctrl + N</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-slate-300">Ctrl + U</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Deshacer Cambio</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-amber-300">Ctrl + Z</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Rehacer Cambio</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-amber-300">Ctrl + Y</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Fijar Punto A de Bucle</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-cyan-300">Tecla A</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Fijar Punto B de Bucle</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-cyan-300">Tecla B</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Activar / Desactivar Bucle A-B</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-cyan-300">Tecla L</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
                 <span className="text-slate-300">Seleccionar todas las formaciones</span>
