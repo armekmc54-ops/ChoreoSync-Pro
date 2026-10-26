@@ -216,8 +216,27 @@ export const App: React.FC = () => {
   isMetronomeEnabledRef.current = isMetronomeEnabled;
   const playbackRateRef = useRef(playbackRate);
   playbackRateRef.current = playbackRate;
+  const viewModeRef = useRef(viewMode);
+  viewModeRef.current = viewMode;
+  const lastDirectorTickSync = useRef<number>(0);
 
-  // Sincronización en tiempo real inicial y manejo de REQUEST_SYNC
+  // Transmisión en vivo instantánea hacia todos los celulares de los bailarines
+  const broadcastFullState = useCallback((projToBroadcast?: ChoreoProject) => {
+    const p = projToBroadcast || projectRef.current;
+    realtimeManager.broadcast({
+      type: 'FULL_STATE',
+      roomId,
+      senderId: realtimeManager.senderId,
+      timestamp: Date.now(),
+      currentTimeMs: currentTimeMsRef.current,
+      isPlaying: isPlayingRef.current,
+      playbackRate: playbackRateRef.current,
+      project: p,
+      activeFormationId: selectedFormationId,
+    });
+  }, [roomId, selectedFormationId]);
+
+  // Sincronización en tiempo real inicial y manejo de eventos
   useEffect(() => {
     realtimeManager.setRoomId(roomId);
     realtimeManager.connectWebSocket();
@@ -228,6 +247,13 @@ export const App: React.FC = () => {
         currentTimeMsRef.current = payload.currentTimeMs;
         setIsPlaying(payload.isPlaying);
         isPlayingRef.current = payload.isPlaying;
+        animTimeRef.current.t0 = performance.now();
+        animTimeRef.current.c0 = payload.currentTimeMs;
+        animTimeRef.current.lastCur = payload.currentTimeMs;
+        if (payload.playbackRate) {
+          setPlaybackRate(payload.playbackRate as SpeedRate);
+          playbackRateRef.current = payload.playbackRate as SpeedRate;
+        }
         if (payload.activeFormationId) {
           setSelectedFormationId(payload.activeFormationId);
         }
@@ -237,44 +263,61 @@ export const App: React.FC = () => {
         if (payload.currentTimeMs !== undefined) {
           setCurrentTimeMs(payload.currentTimeMs);
           currentTimeMsRef.current = payload.currentTimeMs;
+          animTimeRef.current.t0 = performance.now();
+          animTimeRef.current.c0 = payload.currentTimeMs;
+          animTimeRef.current.lastCur = payload.currentTimeMs;
         }
         if (payload.isPlaying !== undefined) {
           setIsPlaying(payload.isPlaying);
           isPlayingRef.current = payload.isPlaying;
         }
-      } else if (payload.type === 'REQUEST_SYNC') {
-        // Enviar el estado completo del proyecto al nuevo bailarín conectado
-        realtimeManager.broadcast({
-          type: 'FULL_STATE',
-          roomId,
-          senderId: realtimeManager.senderId,
-          timestamp: Date.now(),
-          currentTimeMs: currentTimeMsRef.current,
-          isPlaying: isPlayingRef.current,
-          playbackRate: playbackRateRef.current,
-          project: projectRef.current,
-          activeFormationId: selectedFormationId,
+        if (payload.playbackRate !== undefined) {
+          setPlaybackRate(payload.playbackRate as SpeedRate);
+          playbackRateRef.current = payload.playbackRate as SpeedRate;
+        }
+        if (payload.activeFormationId) {
+          setSelectedFormationId(payload.activeFormationId);
+        }
+        // Actualizar selección de bailarín si el actual ya no existe en el proyecto recibido
+        setSelectedDancerId((currentId) => {
+          const dancers = payload.project?.dancers || [];
+          if (!currentId || !dancers.some((d) => d.id === currentId)) {
+            return dancers[0]?.id || null;
+          }
+          return currentId;
         });
+      } else if (payload.type === 'REQUEST_SYNC' || payload.type === 'JOIN_ROOM') {
+        // Si somos el director, respondemos inmediatamente con el estado completo del proyecto
+        if (viewModeRef.current === 'choreographer') {
+          broadcastFullState(projectRef.current);
+        }
       }
     });
 
-    // Si estamos en modo bailarín, solicitar sincronización inmediatamente
-    if (viewMode === 'dancer') {
-      setTimeout(() => {
-        realtimeManager.broadcast({
-          type: 'REQUEST_SYNC',
-          roomId,
-          senderId: realtimeManager.senderId,
-          timestamp: Date.now(),
-          currentTimeMs: 0,
-          isPlaying: false,
-          playbackRate: 1,
-        });
-      }, 400);
+    // Si somos el director, emitir el estado inicial tras conectarse para poblar el servidor y clientes
+    if (viewMode === 'choreographer') {
+      const timer = setTimeout(() => {
+        broadcastFullState(projectRef.current);
+      }, 350);
+      return () => {
+        clearTimeout(timer);
+        unsubscribe();
+      };
+    } else {
+      // Si somos bailarín, solicitar sync inmediato
+      realtimeManager.broadcast({
+        type: 'REQUEST_SYNC',
+        roomId,
+        senderId: realtimeManager.senderId,
+        timestamp: Date.now(),
+        currentTimeMs: 0,
+        isPlaying: false,
+        playbackRate: 1,
+      });
     }
 
     return () => unsubscribe();
-  }, [roomId, viewMode, selectedFormationId]);
+  }, [roomId, viewMode, broadcastFullState]);
 
   // Recalcular colisiones globales y picos sintéticos al cambiar el proyecto
   useEffect(() => {
@@ -309,22 +352,6 @@ export const App: React.FC = () => {
     if (b.timestampMs <= currentTimeMs + 10) return b;
     return acc;
   }, null);
-
-  // Transmisión en vivo instantánea hacia todos los celulares de los bailarines
-  const broadcastFullState = useCallback((projToBroadcast?: ChoreoProject) => {
-    const p = projToBroadcast || projectRef.current;
-    realtimeManager.broadcast({
-      type: 'FULL_STATE',
-      roomId,
-      senderId: realtimeManager.senderId,
-      timestamp: Date.now(),
-      currentTimeMs: currentTimeMsRef.current,
-      isPlaying: isPlayingRef.current,
-      playbackRate: playbackRateRef.current,
-      project: p,
-      activeFormationId: selectedFormationId,
-    });
-  }, [roomId, selectedFormationId]);
 
   // Función seek de tiempo precisa
   const handleSeek = useCallback(
@@ -528,13 +555,27 @@ export const App: React.FC = () => {
         animTimeRef.current.lastCur = nextTime;
         setCurrentTimeMs(nextTime);
         currentTimeMsRef.current = nextTime;
+
+        // Director sincroniza el pulso de tiempo cada 150ms hacia los celulares
+        if (viewModeRef.current === 'choreographer' && now - lastDirectorTickSync.current > 150) {
+          lastDirectorTickSync.current = now;
+          realtimeManager.broadcast({
+            type: 'SYNC_TIME',
+            roomId,
+            senderId: realtimeManager.senderId,
+            timestamp: Date.now(),
+            currentTimeMs: nextTime,
+            isPlaying: true,
+            playbackRate: playbackRateRef.current,
+          });
+        }
       }
       animId = requestAnimationFrame(tick);
     };
 
     animId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animId);
-  }, []);
+  }, [roomId]);
 
   // CRUD de Bailarines
   const handleAddDancer = () => {
@@ -1003,11 +1044,15 @@ export const App: React.FC = () => {
       setIsMetronomeEnabled(false);
       setIsRecordCountsMode(true);
 
-      setProject((prev) => ({
-        ...prev,
-        durationMs: loaded.durationMs,
-        audioFileName: file.name,
-      }));
+      setProject((prev) => {
+        const newProj = {
+          ...prev,
+          durationMs: loaded.durationMs,
+          audioFileName: file.name,
+        };
+        broadcastFullState(newProj);
+        return newProj;
+      });
     } catch {
       alert('No se pudo decodificar el archivo de audio. Verifica que sea un archivo válido (.mp3, .wav, .m4a).');
     }
@@ -1022,12 +1067,16 @@ export const App: React.FC = () => {
     setPeaks(synPeaks);
     setIsMetronomeEnabled(true);
 
-    setProject((prev) => ({
-      ...prev,
-      durationMs,
-      bpm: 120,
-      beats,
-    }));
+    setProject((prev) => {
+      const newProj = {
+        ...prev,
+        durationMs,
+        bpm: 120,
+        beats,
+      };
+      broadcastFullState(newProj);
+      return newProj;
+    });
   };
 
   // Renderizadores de Paneles

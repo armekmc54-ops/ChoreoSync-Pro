@@ -37,17 +37,20 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
 }) => {
   const [isMirror, setIsMirror] = useState(false);
 
-  // Intentar restaurar el bailarín guardado localmente en este celular
+  // Intentar restaurar el bailarín guardado localmente o asignar el primero del proyecto recibido
   useEffect(() => {
-    if (!selectedDancerId && project.dancers.length > 0) {
-      try {
-        const savedId = localStorage.getItem('choreosync_my_dancer_id');
-        if (savedId && project.dancers.some((d) => d.id === savedId)) {
-          onSelectDancer(savedId);
-          return;
-        }
-      } catch {}
-      onSelectDancer(project.dancers[0].id);
+    if (project.dancers.length > 0) {
+      const isValidCurrent = selectedDancerId && project.dancers.some((d) => d.id === selectedDancerId);
+      if (!isValidCurrent) {
+        try {
+          const savedId = localStorage.getItem('choreosync_my_dancer_id');
+          if (savedId && project.dancers.some((d) => d.id === savedId)) {
+            onSelectDancer(savedId);
+            return;
+          }
+        } catch {}
+        onSelectDancer(project.dancers[0].id);
+      }
     }
   }, [selectedDancerId, project.dancers, onSelectDancer]);
 

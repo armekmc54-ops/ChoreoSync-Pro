@@ -2,17 +2,40 @@ import QRCode from 'qrcode';
 import { RealtimeSyncPayload } from '../types/choreo';
 
 export type RealtimeListener = (payload: RealtimeSyncPayload) => void;
+export type ConnectionListener = (isConnected: boolean) => void;
 
 class RealtimeSyncManager {
   private broadcastChannel: BroadcastChannel | null = null;
   private ws: WebSocket | null = null;
   private listeners: Set<RealtimeListener> = new Set();
+  private connectionListeners: Set<ConnectionListener> = new Set();
   public roomId: string = 'SALA-CHOREO-1';
   public senderId: string = 'client_' + Math.random().toString(36).slice(2, 8);
   private isConnectedWs = false;
+  private reconnectTimer: any = null;
+  private pendingQueue: RealtimeSyncPayload[] = [];
+  private currentUrlIdx = 0;
+  private candidateUrls: string[] = [];
 
   constructor() {
     this.initBroadcastChannel();
+    this.initCandidateUrls();
+  }
+
+  private initCandidateUrls() {
+    if (typeof window !== 'undefined') {
+      const isHttps = window.location.protocol === 'https:';
+      const wsProtocol = isHttps ? 'wss:' : 'ws:';
+      const host = window.location.host; // e.g. 192.168.1.2:5173 o localhost:5173
+      const hostname = window.location.hostname || 'localhost';
+
+      this.candidateUrls = [
+        `${wsProtocol}//${host}/ws`,            // 1. Integrado en Vite/Express (mismo puerto 5173)
+        `ws://${hostname}:8080`,               // 2. Servidor standalone en puerto 8080
+      ];
+    } else {
+      this.candidateUrls = ['ws://localhost:5173/ws', 'ws://localhost:8080'];
+    }
   }
 
   private initBroadcastChannel() {
@@ -25,7 +48,7 @@ class RealtimeSyncManager {
           }
         };
       } catch (e) {
-        console.warn('BroadcastChannel no soportado o restringido:', e);
+        console.warn('BroadcastChannel no disponible en este entorno:', e);
       }
     }
   }
@@ -35,17 +58,23 @@ class RealtimeSyncManager {
       return;
     }
 
-    const host = window.location.hostname || 'localhost';
-    const targetUrl = wsUrl || `ws://${host}:8080`;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const targetUrl = wsUrl || this.candidateUrls[this.currentUrlIdx % this.candidateUrls.length];
 
     try {
       this.ws = new WebSocket(targetUrl);
 
       this.ws.onopen = () => {
         this.isConnectedWs = true;
-        console.log('Conectado al servidor WebSocket en vivo:', targetUrl);
-        // Anunciar entrada a la sala
-        this.broadcast({
+        this.notifyConnectionListeners(true);
+        console.log(`[ChoreoSync Live] Conectado exitosamente a: ${targetUrl}`);
+
+        // 1. Enviar entrada a la sala
+        const joinPayload: RealtimeSyncPayload = {
           type: 'JOIN_ROOM',
           roomId: this.roomId,
           senderId: this.senderId,
@@ -53,7 +82,33 @@ class RealtimeSyncManager {
           currentTimeMs: 0,
           isPlaying: false,
           playbackRate: 1,
-        });
+        };
+        try {
+          this.ws?.send(JSON.stringify(joinPayload));
+        } catch {}
+
+        // 2. Solicitar sincronización inmediata del estado actual
+        const reqPayload: RealtimeSyncPayload = {
+          type: 'REQUEST_SYNC',
+          roomId: this.roomId,
+          senderId: this.senderId,
+          timestamp: Date.now(),
+          currentTimeMs: 0,
+          isPlaying: false,
+          playbackRate: 1,
+        };
+        try {
+          this.ws?.send(JSON.stringify(reqPayload));
+        } catch {}
+
+        // 3. Vaciar cola de mensajes pendientes
+        if (this.pendingQueue.length > 0) {
+          const queue = [...this.pendingQueue];
+          this.pendingQueue = [];
+          for (const item of queue) {
+            this.broadcast(item);
+          }
+        }
       };
 
       this.ws.onmessage = (event) => {
@@ -63,24 +118,60 @@ class RealtimeSyncManager {
             this.notifyListeners(payload);
           }
         } catch {
-          // Mensaje no JSON
+          // Mensaje no válido
         }
       };
 
       this.ws.onerror = () => {
         this.isConnectedWs = false;
+        this.notifyConnectionListeners(false);
       };
 
       this.ws.onclose = () => {
         this.isConnectedWs = false;
+        this.notifyConnectionListeners(false);
+
+        // Rotar URL candidata para el siguiente intento si hay fallo
+        this.currentUrlIdx++;
+        this.scheduleReconnect();
       };
     } catch (e) {
-      console.warn('No se pudo conectar WebSocket:', e);
+      console.warn(`[ChoreoSync Live] Error intentando conectar a ${targetUrl}:`, e);
+      this.currentUrlIdx++;
+      this.scheduleReconnect();
     }
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connectWebSocket();
+    }, 1500);
   }
 
   public setRoomId(roomId: string) {
     this.roomId = roomId.trim().toUpperCase();
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.broadcast({
+        type: 'JOIN_ROOM',
+        roomId: this.roomId,
+        senderId: this.senderId,
+        timestamp: Date.now(),
+        currentTimeMs: 0,
+        isPlaying: false,
+        playbackRate: 1,
+      });
+      this.broadcast({
+        type: 'REQUEST_SYNC',
+        roomId: this.roomId,
+        senderId: this.senderId,
+        timestamp: Date.now(),
+        currentTimeMs: 0,
+        isPlaying: false,
+        playbackRate: 1,
+      });
+    }
   }
 
   public subscribe(listener: RealtimeListener): () => void {
@@ -88,6 +179,22 @@ class RealtimeSyncManager {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  public onConnectionState(listener: ConnectionListener): () => void {
+    this.connectionListeners.add(listener);
+    listener(this.isConnectedWs);
+    return () => {
+      this.connectionListeners.delete(listener);
+    };
+  }
+
+  private notifyConnectionListeners(connected: boolean) {
+    this.connectionListeners.forEach((l) => {
+      try {
+        l(connected);
+      } catch {}
+    });
   }
 
   private notifyListeners(payload: RealtimeSyncPayload) {
@@ -105,7 +212,7 @@ class RealtimeSyncManager {
     payload.roomId = this.roomId;
     payload.timestamp = Date.now();
 
-    // 1. BroadcastChannel local
+    // 1. BroadcastChannel en la misma máquina
     if (this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage(payload);
@@ -121,6 +228,15 @@ class RealtimeSyncManager {
       } catch (e) {
         console.warn('Error enviando por WebSocket:', e);
       }
+    } else {
+      // Guardar en cola si el socket aún se está conectando
+      // Si ya hay un FULL_STATE en cola, reemplazarlo con el más reciente
+      if (payload.type === 'FULL_STATE') {
+        this.pendingQueue = this.pendingQueue.filter((p) => p.type !== 'FULL_STATE');
+      }
+      this.pendingQueue.push(payload);
+      // Asegurarse de que el socket intente conectarse
+      this.connectWebSocket();
     }
   }
 
@@ -141,7 +257,7 @@ class RealtimeSyncManager {
   }
 
   public isWsConnected(): boolean {
-    return this.isConnectedWs;
+    return this.isConnectedWs || (this.ws?.readyState === WebSocket.OPEN);
   }
 }
 
