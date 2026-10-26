@@ -49,8 +49,9 @@ function liveSyncPlugin(): Plugin {
               rooms.get(currentRoom)!.add(ws);
             }
 
-            // Si es un FULL_STATE con proyecto, guardarlo en caché del servidor
-            if (data.type === 'FULL_STATE' && data.project) {
+            // Si es un FULL_STATE con proyecto, asegurar formato y guardarlo en caché del servidor
+            if (data.type === 'FULL_STATE' && data.project && Array.isArray(data.project.dancers) && Array.isArray(data.project.formations)) {
+              if (!Array.isArray(data.project.beats)) data.project.beats = [];
               roomStates.set(currentRoom, data);
             }
 

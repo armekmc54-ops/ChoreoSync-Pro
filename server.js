@@ -117,7 +117,8 @@ function handleWsConnection(ws, req) {
       }
 
       // Guardar el estado completo de la coreografía
-      if (data.type === 'FULL_STATE' && data.project) {
+      if (data.type === 'FULL_STATE' && data.project && Array.isArray(data.project.dancers) && Array.isArray(data.project.formations)) {
+        if (!Array.isArray(data.project.beats)) data.project.beats = [];
         roomStates.set(currentRoom, data);
       }
 

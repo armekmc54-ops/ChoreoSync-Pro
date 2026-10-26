@@ -37,8 +37,9 @@ wss.on('connection', (ws, req) => {
         rooms.get(currentRoom).add(ws);
       }
 
-      // Guardar el estado completo de la coreografía
-      if (data.type === 'FULL_STATE' && data.project) {
+      // Guardar el estado completo de la coreografía asegurando arrays
+      if (data.type === 'FULL_STATE' && data.project && Array.isArray(data.project.dancers) && Array.isArray(data.project.formations)) {
+        if (!Array.isArray(data.project.beats)) data.project.beats = [];
         roomStates.set(currentRoom, data);
       }
 

@@ -63,7 +63,7 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
   const myPose = currentDancer ? currentPoses[currentDancer.id] : null;
 
   // Encontrar el conteo activo actual
-  const activeBeat = project.beats.reduce<Beat | null>((acc, b) => {
+  const activeBeat = (project.beats || []).reduce<Beat | null>((acc, b) => {
     if (b.timestampMs <= currentTimeMs + 10) return b;
     return acc;
   }, null);

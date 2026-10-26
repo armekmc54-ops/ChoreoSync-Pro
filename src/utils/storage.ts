@@ -167,6 +167,21 @@ export function createBlankProject(name = 'Nueva Sesión Coreográfica'): Choreo
   };
 }
 
+export function sanitizeProject(raw: any): ChoreoProject {
+  const fallback = createDemoProject();
+  if (!raw || typeof raw !== 'object') return fallback;
+  return {
+    version: typeof raw.version === 'string' && raw.version ? raw.version : '1.0.0',
+    name: typeof raw.name === 'string' && raw.name ? raw.name : fallback.name,
+    durationMs: typeof raw.durationMs === 'number' && raw.durationMs > 0 ? raw.durationMs : fallback.durationMs,
+    bpm: typeof raw.bpm === 'number' && raw.bpm > 0 ? raw.bpm : fallback.bpm,
+    audioFileName: raw.audioFileName || fallback.audioFileName,
+    dancers: Array.isArray(raw.dancers) && raw.dancers.length > 0 ? raw.dancers : fallback.dancers,
+    formations: Array.isArray(raw.formations) && raw.formations.length > 0 ? raw.formations : fallback.formations,
+    beats: Array.isArray(raw.beats) ? raw.beats : (fallback.beats || []),
+  };
+}
+
 const STORAGE_KEY = 'choreosync_pro_project_v1';
 const SESSION_STORAGE_KEY = 'choreosync_pro_session_v1';
 
@@ -183,8 +198,8 @@ export function loadProjectFromLocalStorage(): ChoreoProject | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && Array.isArray(parsed.dancers) && Array.isArray(parsed.formations)) {
-      return parsed as ChoreoProject;
+    if (parsed && typeof parsed === 'object') {
+      return sanitizeProject(parsed);
     }
   } catch (err) {
     console.error('Error cargando de localStorage:', err);
@@ -205,8 +220,11 @@ export function loadSessionFromLocalStorage(): ChoreoSession | null {
     const raw = localStorage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && parsed.project && Array.isArray(parsed.project.formations)) {
-      return parsed as ChoreoSession;
+    if (parsed && typeof parsed === 'object') {
+      return {
+        ...parsed,
+        project: sanitizeProject(parsed.project),
+      };
     }
   } catch (err) {
     console.error('Error cargando sesión de localStorage:', err);

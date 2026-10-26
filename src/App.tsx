@@ -16,6 +16,7 @@ import {
 import { 
   createDemoProject, 
   createBlankProject,
+  sanitizeProject,
   saveProjectToLocalStorage, 
   loadProjectFromLocalStorage, 
   saveSessionToLocalStorage,
@@ -61,11 +62,11 @@ export const App: React.FC = () => {
   // Inicialización de proyecto y sesión desde localStorage o demo
   const [project, setProject] = useState<ChoreoProject>(() => {
     const savedSession = loadSessionFromLocalStorage();
-    if (savedSession?.project && Array.isArray(savedSession.project.formations)) {
-      return savedSession.project;
+    if (savedSession?.project) {
+      return sanitizeProject(savedSession.project);
     }
     const saved = loadProjectFromLocalStorage();
-    return saved || createDemoProject();
+    return saved ? sanitizeProject(saved) : createDemoProject();
   });
 
   const [sessionName, setSessionName] = useState<string>(() => {
@@ -258,8 +259,9 @@ export const App: React.FC = () => {
           setSelectedFormationId(payload.activeFormationId);
         }
       } else if (payload.type === 'FULL_STATE' && payload.project) {
-        setProject(payload.project);
-        saveProjectToLocalStorage(payload.project);
+        const cleanProject = sanitizeProject(payload.project);
+        setProject(cleanProject);
+        saveProjectToLocalStorage(cleanProject);
         if (payload.currentTimeMs !== undefined) {
           setCurrentTimeMs(payload.currentTimeMs);
           currentTimeMsRef.current = payload.currentTimeMs;
@@ -280,7 +282,7 @@ export const App: React.FC = () => {
         }
         // Actualizar selección de bailarín si el actual ya no existe en el proyecto recibido
         setSelectedDancerId((currentId) => {
-          const dancers = payload.project?.dancers || [];
+          const dancers = cleanProject.dancers || [];
           if (!currentId || !dancers.some((d) => d.id === currentId)) {
             return dancers[0]?.id || null;
           }
@@ -327,7 +329,7 @@ export const App: React.FC = () => {
     if (globalAudioEngine.isUsingSyntheticAudio()) {
       const synPeaks = globalAudioEngine.generateSyntheticPeaks(
         project.durationMs,
-        project.beats
+        project.beats || []
       );
       setPeaks(synPeaks);
     }
@@ -348,7 +350,7 @@ export const App: React.FC = () => {
   }, [project, layout, sessionName]);
 
   // Encontrar el conteo activo actual
-  const currentBeat = project.beats.reduce<Beat | null>((acc, b) => {
+  const currentBeat = (project.beats || []).reduce<Beat | null>((acc, b) => {
     if (b.timestampMs <= currentTimeMs + 10) return b;
     return acc;
   }, null);
@@ -451,7 +453,7 @@ export const App: React.FC = () => {
   // TAP-TO-BEAT (Marcar conteo en vivo de 1 a 8)
   const handleTapBeat = useCallback(() => {
     const cur = Math.round(currentTimeMsRef.current);
-    const beats = [...projectRef.current.beats];
+    const beats = [...(projectRef.current.beats || [])];
     const lastBeat = beats[beats.length - 1];
 
     let countNumber = 1;
@@ -509,14 +511,15 @@ export const App: React.FC = () => {
         let nextTime = animTimeRef.current.c0 + delta;
 
         // Soporte bucle por Ocho
-        if (isLoopPhraseRef.current && projectRef.current.beats.length > 0) {
-          const activeB = projectRef.current.beats.reduce<Beat | null>((acc, b) => {
+        const curBeats = projectRef.current.beats || [];
+        if (isLoopPhraseRef.current && curBeats.length > 0) {
+          const activeB = curBeats.reduce<Beat | null>((acc, b) => {
             if (b.timestampMs <= nextTime) return b;
             return acc;
           }, null);
 
           if (activeB) {
-            const phraseBeats = projectRef.current.beats.filter(
+            const phraseBeats = curBeats.filter(
               (b) => b.phraseIndex === activeB.phraseIndex
             );
             const pStart = phraseBeats[0]?.timestampMs || 0;
@@ -545,7 +548,7 @@ export const App: React.FC = () => {
 
         // Metrónomo sintético con Web Audio API
         if (isMetronomeEnabledRef.current) {
-          projectRef.current.beats.forEach((b) => {
+          curBeats.forEach((b) => {
             if (b.timestampMs > animTimeRef.current.lastCur && b.timestampMs <= nextTime) {
               globalAudioEngine.playBeatClick(b.countNumber);
             }
@@ -944,14 +947,15 @@ export const App: React.FC = () => {
       }
 
       // Flechas -> Avanzar / retroceder entre conteos
+      const curBeats = project.beats || [];
       if (e.key === 'ArrowRight') {
         e.preventDefault();
-        const nextB = project.beats.find((b) => b.timestampMs > currentTimeMs + 10);
+        const nextB = curBeats.find((b) => b.timestampMs > currentTimeMs + 10);
         if (nextB) handleSeek(nextB.timestampMs);
         else handleSeek(currentTimeMs + 500);
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        const prevBeats = project.beats.filter((b) => b.timestampMs < currentTimeMs - 10);
+        const prevBeats = curBeats.filter((b) => b.timestampMs < currentTimeMs - 10);
         if (prevBeats.length > 0) {
           handleSeek(prevBeats[prevBeats.length - 1].timestampMs);
         } else {
