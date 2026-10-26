@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Formation, Beat } from '../../types/choreo';
 import { clamp } from '../../utils/interpolation';
-import { ZoomIn, ZoomOut, Maximize2, MoveHorizontal } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Trash2, ArrowRight } from 'lucide-react';
 
 interface TimelineProps {
   durationMs: number;
@@ -10,9 +10,12 @@ interface TimelineProps {
   formations: Formation[];
   peaks: number[];
   selectedFormationId: string;
+  selectedFormationIds?: string[];
   collisionTimes: number[];
   onSeek: (timeMs: number) => void;
-  onSelectFormation: (formationId: string) => void;
+  onSelectFormation: (formationId: string, isMulti?: boolean) => void;
+  onSelectMultipleFormations?: (formationIds: string[]) => void;
+  onDeleteFormations?: (formationIds: string[]) => void;
   onUpdateFormationTiming: (
     formationId: string,
     startTimeMs: number,
@@ -30,33 +33,47 @@ export const Timeline: React.FC<TimelineProps> = ({
   formations,
   peaks,
   selectedFormationId,
+  selectedFormationIds = [],
   collisionTimes,
   onSeek,
   onSelectFormation,
+  onSelectMultipleFormations,
+  onDeleteFormations,
   onUpdateFormationTiming,
   onUpdateBeatTimestamp,
   onAddFormationAtTime,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Estados de Zoom Horizontal y Scroll de Timeline (Estilo Adobe Audition)
+  // Zoom Horizontal y Paneo de Timeline
   const [zoom, setZoom] = useState<number>(1.0); // 1.0x hasta 16.0x
   const [scrollLeftMs, setScrollLeftMs] = useState<number>(0);
 
+  // Caja de selección múltiple (Marquee)
+  const [selectionBox, setSelectionBox] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+
   const dragRef = useRef<{
-    type: 'scrub' | 'beat' | 'hold_handle' | 'trans_handle' | 'form_move' | 'minimap_scroll' | 'timeline_pan';
+    type: 'scrub' | 'beat' | 'hold_handle' | 'trans_handle' | 'form_move' | 'minimap_scroll' | 'timeline_pan' | 'box_select';
     targetId?: string;
+    targetIds?: string[];
     initialMs?: number;
     offsetMs?: number;
+    offsets?: Record<string, number>;
     pointerId: number;
     startX?: number;
+    startY?: number;
     initialScrollMs?: number;
     hasMoved?: boolean;
   } | null>(null);
 
   const visibleDurationMs = Math.max(500, durationMs / zoom);
 
-  // Auto-scroll durante reproducción si la aguja sale de la vista
+  // Auto-scroll durante reproducción
   useEffect(() => {
     if (zoom > 1) {
       if (currentTimeMs < scrollLeftMs) {
@@ -67,7 +84,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     }
   }, [currentTimeMs, zoom, visibleDurationMs, durationMs, scrollLeftMs]);
 
-  // Conversión precisa entre milisegundos y coordenadas X de pantalla
+  // Conversión entre tiempo y posición X
   const timeToX = useCallback(
     (t: number, width: number) => {
       return ((t - scrollLeftMs) / visibleDurationMs) * width;
@@ -83,13 +100,72 @@ export const Timeline: React.FC<TimelineProps> = ({
     [scrollLeftMs, visibleDurationMs, durationMs]
   );
 
+  // PREVENCIÓN ESTRICTA DE ZOOM EN LA PESTAÑA DEL NAVEGADOR EN LAPTOPS
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const vis = Math.max(500, durationMs / zoom);
+
+      if (e.ctrlKey || e.altKey) {
+        // Zoom centrado en cursor
+        const factor = e.deltaY < 0 ? 1.25 : 0.8;
+        setZoom((prev) => {
+          const next = clamp(Math.round(prev * factor * 10) / 10, 1.0, 16.0);
+          if (next === 1.0) {
+            setScrollLeftMs(0);
+          } else {
+            const newVis = durationMs / next;
+            const mouseRatio = (e.clientX - canvas.getBoundingClientRect().left) / canvas.clientWidth;
+            const mouseTime = scrollLeftMs + mouseRatio * vis;
+            setScrollLeftMs(clamp(mouseTime - mouseRatio * newVis, 0, durationMs - newVis));
+          }
+          return next;
+        });
+      } else {
+        // Desplazamiento horizontal
+        const deltaMs = (e.deltaY / canvas.clientWidth) * vis * 0.85;
+        setScrollLeftMs((prev) => clamp(prev + deltaMs, 0, Math.max(0, durationMs - vis)));
+      }
+    };
+
+    canvas.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleNativeWheel);
+  }, [zoom, scrollLeftMs, durationMs]);
+
+  // TECLADO: ELIMINAR CON SUPR O BACKSPACE
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const toDelete = selectedFormationIds.length > 0 
+          ? selectedFormationIds 
+          : (selectedFormationId ? [selectedFormationId] : []);
+
+        if (toDelete.length > 0 && onDeleteFormations) {
+          e.preventDefault();
+          onDeleteFormations(toDelete);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedFormationId, selectedFormationIds, onDeleteFormations]);
+
   const handleZoomChange = (factor: number) => {
     setZoom((prev) => {
       const nextZoom = clamp(Math.round(prev * factor * 10) / 10, 1.0, 16.0);
       if (nextZoom === 1.0) {
         setScrollLeftMs(0);
       } else {
-        // Centrar zoom alrededor del tiempo actual
         const newVisible = durationMs / nextZoom;
         const newScroll = clamp(currentTimeMs - newVisible / 2, 0, durationMs - newVisible);
         setScrollLeftMs(newScroll);
@@ -121,45 +197,41 @@ export const Timeline: React.FC<TimelineProps> = ({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, clientW, clientH);
 
-    // Fondo del timeline
     ctx.fillStyle = '#020617';
     ctx.fillRect(0, 0, clientW, clientH);
 
-    // 0. MINI-MAPA DE NAVEGACIÓN SUPERIOR (Estilo DAW / Audition)
-    const minimapH = zoom > 1.05 ? 14 : 0;
+    // 0. MINIMAPA SUPERIOR
+    const minimapH = zoom > 1.05 ? 13 : 0;
     if (minimapH > 0) {
       ctx.fillStyle = '#0b1220';
       ctx.fillRect(0, 0, clientW, minimapH);
 
-      // Mini-picos de onda en el minimapa
       if (peaks.length > 0) {
         ctx.fillStyle = 'rgba(34, 211, 238, 0.4)';
         for (let mx = 0; mx < clientW; mx += 3) {
           const idx = Math.floor((mx / clientW) * peaks.length);
           const amp = peaks[idx] || 0;
-          const bh = amp * (minimapH - 4);
+          const bh = amp * (minimapH - 3);
           ctx.fillRect(mx, (minimapH - bh) / 2, 2, Math.max(1, bh));
         }
       }
 
-      // Ventana visible en el minimapa
       const winX = (scrollLeftMs / durationMs) * clientW;
       const winW = (visibleDurationMs / durationMs) * clientW;
-      ctx.fillStyle = 'rgba(139, 92, 246, 0.25)';
+      ctx.fillStyle = 'rgba(139, 92, 246, 0.28)';
       ctx.fillRect(winX, 0, winW, minimapH);
       ctx.strokeStyle = '#a855f7';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(winX, 0.5, winW, minimapH - 1);
     }
 
-    // 1. REGLA DE TIEMPO (SEGUNDOS CON INTERVALO DINÁMICO)
+    // 1. REGLA DE TIEMPO
     const rulerY = minimapH;
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, rulerY, clientW, 20);
+    ctx.fillRect(0, rulerY, clientW, 18);
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1;
 
-    // Calcular paso de marcas según nivel de zoom
     let stepSec = 5;
     if (zoom >= 8) stepSec = 0.5;
     else if (zoom >= 4) stepSec = 1;
@@ -178,25 +250,25 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       const isMajor = s % (stepSec * 2) === 0 || s === 0;
       ctx.beginPath();
-      ctx.moveTo(x, rulerY + (isMajor ? 4 : 10));
-      ctx.lineTo(x, rulerY + 20);
+      ctx.moveTo(x, rulerY + (isMajor ? 4 : 9));
+      ctx.lineTo(x, rulerY + 18);
       ctx.stroke();
 
       if (x >= 0 && x < clientW - 35) {
-        ctx.fillText(`${s.toFixed(stepSec < 1 ? 1 : 0)}s`, x + 3, rulerY + 14);
+        ctx.fillText(`${s.toFixed(stepSec < 1 ? 1 : 0)}s`, x + 3, rulerY + 12);
       }
     }
 
-    // 2. PISTA 1: ONDA DE AUDIO (Y: rulerY + 22 a rulerY + 72)
-    const audioTrackY = rulerY + 47;
-    const audioHeight = 24;
+    // 2. PISTA 1: ONDA DE AUDIO (Y: rulerY + 20 a rulerY + 66)
+    const audioTrackY = rulerY + 43;
+    const audioHeight = 21;
 
     ctx.fillStyle = 'rgba(30, 41, 59, 0.4)';
-    ctx.fillRect(0, rulerY + 22, clientW, 50);
+    ctx.fillRect(0, rulerY + 20, clientW, 46);
 
     ctx.fillStyle = '#475569';
     ctx.font = '9px system-ui';
-    ctx.fillText('AUDIO', 4, rulerY + 32);
+    ctx.fillText('AUDIO', 4, rulerY + 30);
 
     if (peaks.length > 0) {
       ctx.strokeStyle = 'rgba(34, 211, 238, 0.85)';
@@ -221,10 +293,10 @@ export const Timeline: React.FC<TimelineProps> = ({
       ctx.stroke();
     }
 
-    // 3. PISTA 2: CONTEOS DE 8 TIEMPOS (Y: rulerY + 74 a rulerY + 112)
-    const beatsY = rulerY + 74;
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
-    ctx.fillRect(0, beatsY, clientW, 38);
+    // 3. PISTA 2: CONTEOS 1 AL 8 (Y: rulerY + 68 a rulerY + 104)
+    const beatsY = rulerY + 68;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.fillRect(0, beatsY, clientW, 36);
 
     ctx.fillStyle = '#64748b';
     ctx.font = '9px system-ui';
@@ -240,96 +312,146 @@ export const Timeline: React.FC<TimelineProps> = ({
       ctx.lineWidth = isOne ? 2.5 : 1.2;
       ctx.beginPath();
       ctx.moveTo(bx, isOne ? beatsY + 2 : beatsY + 10);
-      ctx.lineTo(bx, beatsY + 36);
+      ctx.lineTo(bx, beatsY + 34);
       ctx.stroke();
 
       ctx.font = isOne ? 'bold 10px monospace' : '9px monospace';
       ctx.fillStyle = isOne ? '#c084fc' : '#7dd3fc';
       ctx.textAlign = 'center';
       const label = isOne ? `O${b.phraseIndex}·1` : String(b.countNumber);
-      ctx.fillText(label, bx + (isOne ? 10 : 0), isOne ? beatsY + 12 : beatsY + 24);
+      ctx.fillText(label, bx + (isOne ? 10 : 0), isOne ? beatsY + 12 : beatsY + 23);
     });
 
-    // 4. PISTA 3: BLOQUES DE FORMACIONES (Y: rulerY + 114 a rulerY + 160)
-    const formY = rulerY + 114;
-    ctx.fillStyle = 'rgba(2, 6, 23, 0.8)';
-    ctx.fillRect(0, formY, clientW, 46);
+    // 4. PISTA 3: FORMACIONES (HOLD - POSES FIJAS) (Y: rulerY + 106 a rulerY + 144)
+    const formTrackY = rulerY + 106;
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
+    ctx.fillRect(0, formTrackY, clientW, 38);
 
-    ctx.fillStyle = '#64748b';
-    ctx.font = '9px system-ui';
+    ctx.fillStyle = '#a78bfa';
+    ctx.font = 'bold 9px system-ui';
     ctx.textAlign = 'left';
-    ctx.fillText('FORMACIONES', 4, formY + 10);
+    ctx.fillText('FORMACIONES (HOLD)', 4, formTrackY + 11);
+
+    const isSelectedF = (id: string) => id === selectedFormationId || selectedFormationIds.includes(id);
 
     formations.forEach((f) => {
-      const isSelected = f.id === selectedFormationId;
+      const isSel = isSelectedF(f.id);
       const xStart = timeToX(f.startTimeMs, clientW);
       const xHoldEnd = timeToX(f.startTimeMs + f.holdDurationMs, clientW);
-      const xTransEnd = timeToX(
-        f.startTimeMs + f.holdDurationMs + f.transitionDurationMs,
-        clientW
-      );
 
-      if (xTransEnd < 0 || xStart > clientW) return;
+      if (xHoldEnd < 0 || xStart > clientW) return;
 
-      // Bloque HOLD (Púrpura)
-      const holdW = Math.max(2, xHoldEnd - xStart);
-      ctx.fillStyle = isSelected ? '#7c3aed' : '#5b21b6';
-      ctx.fillRect(xStart, formY + 4, holdW, 40);
+      const holdW = Math.max(3, xHoldEnd - xStart);
 
-      // Bloque TRANSICIÓN (Cian con patrón)
-      if (f.transitionDurationMs > 0) {
-        const transW = Math.max(2, xTransEnd - xHoldEnd);
-        ctx.fillStyle = isSelected ? '#0891b2' : '#0e7490';
-        ctx.fillRect(xHoldEnd, formY + 8, transW, 32);
-
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.lineWidth = 1;
-        for (let diagX = xHoldEnd; diagX < xTransEnd; diagX += 8) {
-          ctx.beginPath();
-          ctx.moveTo(diagX, formY + 40);
-          ctx.lineTo(diagX + 6, formY + 8);
-          ctx.stroke();
-        }
-
-        // Handle Transición
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(xTransEnd - 2, formY + 10, 4, 28);
-      }
-
-      // Handle Hold
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(xHoldEnd - 2, formY + 6, 4, 36);
+      // Bloque HOLD sólido
+      ctx.fillStyle = isSel ? '#7c3aed' : '#5b21b6';
+      ctx.fillRect(xStart, formTrackY + 4, holdW, 30);
 
       // Borde de selección
-      if (isSelected) {
-        ctx.strokeStyle = '#e2e8f0';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(xStart, formY + 4, Math.max(4, xTransEnd - xStart), 40);
+      if (isSel) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(xStart, formTrackY + 4, holdW, 30);
+      } else {
+        ctx.strokeStyle = '#8b5cf6';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(xStart, formTrackY + 4, holdW, 30);
       }
 
-      // Título de la formación
+      // Handle Hold (ajuste de duración fija)
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(xHoldEnd - 3, formTrackY + 6, 4, 26);
+
+      // Etiqueta del nombre de la formación
       ctx.font = 'bold 11px system-ui';
       ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'left';
-      ctx.fillText(f.name, xStart + 6, formY + 22);
+      ctx.fillText(f.name, xStart + 6, formTrackY + 18);
 
       ctx.font = '9px system-ui';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-      ctx.fillText(`${f.holdDurationMs}ms H | ${f.transitionDurationMs}ms T`, xStart + 6, formY + 36);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.fillText(`${f.holdDurationMs}ms Hold`, xStart + 6, formTrackY + 29);
     });
 
-    // 5. ALERTAS DE COLISIÓN (PUNTOS ROJOS)
+    // 5. PISTA 4: TRANSICIONES SEPARADAS (TRASLACIÓN / TRAVEL) (Y: rulerY + 146 a rulerY + 180)
+    const transTrackY = rulerY + 146;
+    ctx.fillStyle = 'rgba(8, 20, 36, 0.75)';
+    ctx.fillRect(0, transTrackY, clientW, 34);
+
+    ctx.fillStyle = '#22d3ee';
+    ctx.font = 'bold 9px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText('TRANSICIONES (TRASLACIÓN)', 4, transTrackY + 10);
+
+    formations.forEach((f, idx) => {
+      if (f.transitionDurationMs <= 0) return;
+
+      const nextF = formations[idx + 1];
+      const transStartMs = f.startTimeMs + f.holdDurationMs;
+      const transEndMs = transStartMs + f.transitionDurationMs;
+
+      const xTransStart = timeToX(transStartMs, clientW);
+      const xTransEnd = timeToX(transEndMs, clientW);
+
+      if (xTransEnd < 0 || xTransStart > clientW) return;
+
+      const transW = Math.max(4, xTransEnd - xTransStart);
+      const isSel = isSelectedF(f.id);
+
+      // Bloque de transición en carril inferior
+      ctx.fillStyle = isSel ? 'rgba(8, 145, 178, 0.95)' : 'rgba(14, 116, 144, 0.75)';
+      ctx.fillRect(xTransStart, transTrackY + 4, transW, 26);
+
+      // Patrón de flechas diagonales de desplazamiento
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      for (let diagX = xTransStart; diagX < xTransEnd; diagX += 10) {
+        ctx.beginPath();
+        ctx.moveTo(diagX, transTrackY + 28);
+        ctx.lineTo(diagX + 7, transTrackY + 6);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = isSel ? '#22d3ee' : '#0891b2';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(xTransStart, transTrackY + 4, transW, 26);
+
+      // Handle Transición
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(xTransEnd - 3, transTrackY + 6, 4, 22);
+
+      // Nombre del destino
+      ctx.font = '600 10px system-ui';
+      ctx.fillStyle = '#ffffff';
+      const destName = nextF ? `➔ ${nextF.name}` : '➔ Siguiente';
+      ctx.fillText(`${destName} (${f.transitionDurationMs}ms)`, xTransStart + 5, transTrackY + 20);
+    });
+
+    // 6. ALERTAS DE COLISIÓN (PUNTOS ROJOS EN TRACK)
     if (collisionTimes.length > 0) {
       ctx.fillStyle = '#ef4444';
       collisionTimes.forEach((t) => {
         const cx = timeToX(t, clientW);
         if (cx >= 0 && cx <= clientW) {
-          ctx.fillRect(cx - 1, formY, 2.5, 6);
+          ctx.fillRect(cx - 1, formTrackY, 2.5, 6);
         }
       });
     }
 
-    // 6. AGUJA DE REPRODUCCIÓN (PLAYHEAD)
+    // 7. CAJA DE SELECCIÓN MÚLTIPLE (MARQUEE GHOST)
+    if (selectionBox) {
+      const minX = Math.min(selectionBox.startX, selectionBox.currentX);
+      const maxX = Math.max(selectionBox.startX, selectionBox.currentX);
+      const minY = Math.min(selectionBox.startY, selectionBox.currentY);
+      const maxY = Math.max(selectionBox.startY, selectionBox.currentY);
+
+      ctx.fillStyle = 'rgba(139, 92, 246, 0.2)';
+      ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+      ctx.strokeStyle = '#a855f7';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    // 8. AGUJA DE REPRODUCCIÓN (PLAYHEAD VERDE)
     const playheadX = timeToX(currentTimeMs, clientW);
     if (playheadX >= -5 && playheadX <= clientW + 5) {
       ctx.strokeStyle = '#10b981';
@@ -354,12 +476,14 @@ export const Timeline: React.FC<TimelineProps> = ({
     formations,
     peaks,
     selectedFormationId,
+    selectedFormationIds,
     collisionTimes,
     timeToX,
     xToTime,
     scrollLeftMs,
     visibleDurationMs,
     zoom,
+    selectionBox,
   ]);
 
   useEffect(() => {
@@ -372,23 +496,7 @@ export const Timeline: React.FC<TimelineProps> = ({
     return () => cancelAnimationFrame(animId);
   }, [render]);
 
-  // ZOOM CON RUEDA DEL RATÓN (Ctrl + Wheel o Alt + Wheel) O SCROLL HORIZONTAL (Shift + Wheel o Wheel normal si zoomed)
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    if (e.ctrlKey || e.altKey) {
-      // Zoom centrado en la posición del ratón
-      const factor = e.deltaY < 0 ? 1.2 : 0.83;
-      handleZoomChange(factor);
-    } else {
-      // Paneo horizontal suave
-      const deltaMs = (e.deltaY / canvas.clientWidth) * visibleDurationMs * 0.8;
-      setScrollLeftMs((prev) => clamp(prev + deltaMs, 0, Math.max(0, durationMs - visibleDurationMs)));
-    }
-  };
-
+  // MANEJO DE POINTER (SELECCIÓN SIMPLE, MÚLTIPLE, CAJA, SCRUB Y ARRASTRE SIN EMPALMES)
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -399,8 +507,10 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     canvas.setPointerCapture(e.pointerId);
 
+    const minimapH = zoom > 1.05 ? 13 : 0;
+    const rulerY = minimapH;
+
     // Clic en el Mini-mapa superior
-    const minimapH = zoom > 1.05 ? 14 : 0;
     if (minimapH > 0 && y <= minimapH) {
       const clickRatio = x / w;
       const targetTime = clickRatio * durationMs;
@@ -412,8 +522,8 @@ export const Timeline: React.FC<TimelineProps> = ({
       return;
     }
 
-    // Paneo con botón central o secundario o Alt
-    if (e.button === 1 || e.button === 2 || e.altKey) {
+    // Paneo con botón secundario o botón central
+    if (e.button === 1 || e.button === 2) {
       dragRef.current = {
         type: 'timeline_pan',
         pointerId: e.pointerId,
@@ -424,10 +534,9 @@ export const Timeline: React.FC<TimelineProps> = ({
     }
 
     const clickedTime = xToTime(x, w);
-    const rulerY = minimapH;
 
-    // Detección en Pista de Conteos
-    if (y >= rulerY + 74 && y <= rulerY + 112) {
+    // 1. Pista de Conteos (Y: rulerY + 68 a rulerY + 104)
+    if (y >= rulerY + 68 && y <= rulerY + 104) {
       const hitBeat = beats.find((b) => Math.abs(timeToX(b.timestampMs, w) - x) < 8);
       if (hitBeat) {
         dragRef.current = {
@@ -440,25 +549,13 @@ export const Timeline: React.FC<TimelineProps> = ({
       }
     }
 
-    // Detección en Pista de Formaciones
-    if (y >= rulerY + 114) {
+    // 2. Pista de Formaciones (Hold) (Y: rulerY + 106 a rulerY + 144)
+    if (y >= rulerY + 106 && y <= rulerY + 144) {
       for (const f of formations) {
         const xStart = timeToX(f.startTimeMs, w);
         const xHoldEnd = timeToX(f.startTimeMs + f.holdDurationMs, w);
-        const xTransEnd = timeToX(
-          f.startTimeMs + f.holdDurationMs + f.transitionDurationMs,
-          w
-        );
 
-        if (f.transitionDurationMs > 0 && Math.abs(x - xTransEnd) < 8) {
-          dragRef.current = {
-            type: 'trans_handle',
-            targetId: f.id,
-            pointerId: e.pointerId,
-          };
-          return;
-        }
-
+        // Handle Hold (ajuste de duración estática)
         if (Math.abs(x - xHoldEnd) < 8) {
           dragRef.current = {
             type: 'hold_handle',
@@ -468,21 +565,73 @@ export const Timeline: React.FC<TimelineProps> = ({
           return;
         }
 
-        if (x >= xStart && x <= xTransEnd) {
-          onSelectFormation(f.id);
+        // Clic en bloque Hold de la formación
+        if (x >= xStart && x <= xHoldEnd) {
+          const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+          onSelectFormation(f.id, isMulti);
           onSeek(f.startTimeMs);
+
+          // Si hay varias formaciones seleccionadas, calcular offsets de cada una para moverlas en conjunto
+          const targets = selectedFormationIds.includes(f.id) ? selectedFormationIds : [f.id];
+          const offsets: Record<string, number> = {};
+          targets.forEach((id) => {
+            const item = formations.find((form) => form.id === id);
+            if (item) offsets[id] = clickedTime - item.startTimeMs;
+          });
+
           dragRef.current = {
             type: 'form_move',
             targetId: f.id,
-            offsetMs: clickedTime - f.startTimeMs,
+            targetIds: targets,
+            offsets,
             pointerId: e.pointerId,
+            hasMoved: false,
           };
           return;
         }
       }
     }
 
-    // Scrubbing regular
+    // 3. Pista de Transiciones (Traslación) (Y: rulerY + 146 a rulerY + 180)
+    if (y >= rulerY + 146 && y <= rulerY + 180) {
+      for (const f of formations) {
+        if (f.transitionDurationMs <= 0) continue;
+        const transStartMs = f.startTimeMs + f.holdDurationMs;
+        const transEndMs = transStartMs + f.transitionDurationMs;
+        const xTransStart = timeToX(transStartMs, w);
+        const xTransEnd = timeToX(transEndMs, w);
+
+        // Handle Transición
+        if (Math.abs(x - xTransEnd) < 8) {
+          dragRef.current = {
+            type: 'trans_handle',
+            targetId: f.id,
+            pointerId: e.pointerId,
+          };
+          return;
+        }
+
+        if (x >= xTransStart && x <= xTransEnd) {
+          onSelectFormation(f.id, e.shiftKey || e.ctrlKey);
+          onSeek(transStartMs);
+          return;
+        }
+      }
+    }
+
+    // 4. Si se presiona Shift o se arrastra en espacio vacío: Caja de selección múltiple (Marquee)
+    if (e.shiftKey || (y >= rulerY + 106 && y <= rulerY + 180)) {
+      dragRef.current = {
+        type: 'box_select',
+        startX: x,
+        startY: y,
+        pointerId: e.pointerId,
+      };
+      setSelectionBox({ startX: x, startY: y, currentX: x, currentY: y });
+      return;
+    }
+
+    // 5. Scrubbing regular de la aguja
     dragRef.current = {
       type: 'scrub',
       pointerId: e.pointerId,
@@ -497,7 +646,34 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     const w = canvas.clientWidth;
+
+    // Caja de selección múltiple
+    if (dragRef.current.type === 'box_select' && dragRef.current.startX !== undefined && dragRef.current.startY !== undefined) {
+      setSelectionBox({
+        startX: dragRef.current.startX,
+        startY: dragRef.current.startY,
+        currentX: x,
+        currentY: y,
+      });
+
+      // Seleccionar formaciones en el rango de tiempo
+      const tA = xToTime(Math.min(dragRef.current.startX, x), w);
+      const tB = xToTime(Math.max(dragRef.current.startX, x), w);
+
+      const matchedIds = formations
+        .filter((f) => {
+          const fEnd = f.startTimeMs + f.holdDurationMs + f.transitionDurationMs;
+          return f.startTimeMs <= tB && fEnd >= tA;
+        })
+        .map((f) => f.id);
+
+      if (onSelectMultipleFormations) {
+        onSelectMultipleFormations(matchedIds);
+      }
+      return;
+    }
 
     if (dragRef.current.type === 'minimap_scroll') {
       const clickRatio = x / w;
@@ -525,7 +701,7 @@ export const Timeline: React.FC<TimelineProps> = ({
       if (!f) return;
 
       if (dragRef.current.type === 'hold_handle') {
-        const newHold = Math.max(200, Math.round(currentTime - f.startTimeMs));
+        const newHold = Math.max(300, Math.round(currentTime - f.startTimeMs));
         onUpdateFormationTiming(f.id, f.startTimeMs, newHold, f.transitionDurationMs);
       } else if (dragRef.current.type === 'trans_handle') {
         const newTrans = Math.max(
@@ -533,12 +709,31 @@ export const Timeline: React.FC<TimelineProps> = ({
           Math.round(currentTime - (f.startTimeMs + f.holdDurationMs))
         );
         onUpdateFormationTiming(f.id, f.startTimeMs, f.holdDurationMs, newTrans);
-      } else if (dragRef.current.type === 'form_move' && dragRef.current.offsetMs !== undefined) {
-        const newStart = Math.max(
-          0,
-          Math.round(currentTime - dragRef.current.offsetMs)
-        );
-        onUpdateFormationTiming(f.id, newStart, f.holdDurationMs, f.transitionDurationMs);
+      } else if (dragRef.current.type === 'form_move' && dragRef.current.offsets) {
+        dragRef.current.hasMoved = true;
+        // REGLA CRÍTICA: NO EMPALMAR FORMACIÓN CON FORMACIÓN
+        const targetIds = dragRef.current.targetIds || [f.id];
+
+        targetIds.forEach((id) => {
+          const form = formations.find((item) => item.id === id);
+          if (!form) return;
+          const off = dragRef.current?.offsets?.[id] || 0;
+          let newStart = Math.max(0, Math.round(currentTime - off));
+
+          // Validación de no solapamiento con formaciones previas o siguientes que no estén seleccionadas
+          const idx = formations.indexOf(form);
+          const prevF = formations[idx - 1];
+          const nextF = formations[idx + 1];
+
+          if (prevF && !targetIds.includes(prevF.id)) {
+            newStart = Math.max(newStart, prevF.startTimeMs + prevF.holdDurationMs);
+          }
+          if (nextF && !targetIds.includes(nextF.id)) {
+            newStart = Math.min(newStart, nextF.startTimeMs - form.holdDurationMs);
+          }
+
+          onUpdateFormationTiming(form.id, newStart, form.holdDurationMs, form.transitionDurationMs);
+        });
       }
     }
   };
@@ -549,6 +744,11 @@ export const Timeline: React.FC<TimelineProps> = ({
       if (canvas && canvas.hasPointerCapture(e.pointerId)) {
         canvas.releasePointerCapture(e.pointerId);
       }
+
+      if (dragRef.current.type === 'box_select') {
+        setSelectionBox(null);
+      }
+
       if (dragRef.current.type === 'beat' && !dragRef.current.hasMoved && dragRef.current.targetId) {
         const b = beats.find((item) => item.id === dragRef.current?.targetId);
         if (b) onSeek(b.timestampMs);
@@ -574,8 +774,8 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   return (
     <div className="relative w-full bg-slate-900 border-t border-slate-800 select-none">
-      {/* BARRA DE ZOOM FLOTANTE DEL TIMELINE (ESTILO ADOBE AUDITION) */}
-      <div className="absolute top-2 right-3 z-20 flex items-center gap-1.5 p-1 rounded-lg bg-slate-950/80 backdrop-blur-md border border-slate-800 shadow-md text-xs">
+      {/* BARRA DE ZOOM FLOTANTE DEL TIMELINE */}
+      <div className="absolute top-2 right-3 z-20 flex items-center gap-1.5 p-1 rounded-lg bg-slate-950/85 backdrop-blur-md border border-slate-800 shadow-md text-xs">
         <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider pl-1 hidden sm:inline">
           Zoom Pista
         </span>
@@ -590,7 +790,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         <button
           onClick={handleResetZoom}
           className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] font-mono text-cyan-400 font-bold hover:bg-slate-800 transition"
-          title="Restablecer Zoom a 1x (Mostrar toda la canción)"
+          title="Restablecer Zoom a 1x"
         >
           {zoom.toFixed(1)}x
         </button>
@@ -614,7 +814,6 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       <canvas
         ref={canvasRef}
-        onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -622,7 +821,7 @@ export const Timeline: React.FC<TimelineProps> = ({
         onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
         className="w-full block cursor-ew-resize touch-none"
-        style={{ height: zoom > 1.05 ? '180px' : '168px' }}
+        style={{ height: zoom > 1.05 ? '202px' : '190px' }}
       />
     </div>
   );

@@ -178,10 +178,12 @@ export function computeStageRect(
   zoom = 1.0,
   pan = { x: 0, y: 0 }
 ): StageRect {
-  const paddingX = 28;
-  const paddingY = 64;
-  let baseW = canvasWidth - paddingX * 2;
-  let baseH = canvasHeight - paddingY * 2;
+  const safeW = Math.max(20, canvasWidth);
+  const safeH = Math.max(20, canvasHeight);
+  const paddingX = Math.min(28, safeW * 0.08);
+  const paddingY = Math.min(48, safeH * 0.12);
+  let baseW = Math.max(10, safeW - paddingX * 2);
+  let baseH = Math.max(10, safeH - paddingY * 2);
   const targetAspect = 1.45; // Relación ancho / alto típica de escenario
 
   if (baseW / baseH > targetAspect) {
@@ -192,8 +194,8 @@ export function computeStageRect(
 
   const w = baseW * zoom;
   const h = baseH * zoom;
-  const centerX = canvasWidth / 2 + pan.x;
-  const centerY = canvasHeight / 2 + pan.y;
+  const centerX = safeW / 2 + pan.x;
+  const centerY = safeH / 2 + pan.y;
 
   return {
     x: centerX - w / 2,

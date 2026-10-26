@@ -54,7 +54,7 @@ export const DancerView: React.FC<DancerViewProps> = ({
     targetText: '',
   };
 
-  if (myPose && currentFormation) {
+  if (myPose && currentFormation && currentDancer) {
     const zoneInfo = getStageZone(myPose.x, myPose.y);
     instruction.currentZone = zoneInfo.label;
     instruction.level = myPose.level;
@@ -62,7 +62,7 @@ export const DancerView: React.FC<DancerViewProps> = ({
     const holdEndMs = currentFormation.startTimeMs + currentFormation.holdDurationMs;
     const transEndMs = holdEndMs + currentFormation.transitionDurationMs;
 
-    if (nextFormation && nextFormation.positions[currentDancer.id]) {
+    if (nextFormation && nextFormation.positions && currentDancer && nextFormation.positions[currentDancer.id]) {
       const nextPos = nextFormation.positions[currentDancer.id];
       const nextZone = getStageZone(nextPos.x, nextPos.y);
 
@@ -104,11 +104,15 @@ export const DancerView: React.FC<DancerViewProps> = ({
             onChange={(e) => onSelectDancer(e.target.value)}
             className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-medium outline-none focus:border-cyan-400 cursor-pointer"
           >
-            {dancers.map((d) => (
-              <option key={d.id} value={d.id}>
-                #{d.slotNumber} - {d.name} ({d.group})
-              </option>
-            ))}
+            {dancers.length === 0 ? (
+              <option value="">Conectando con el director...</option>
+            ) : (
+              dancers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  #{d.slotNumber} - {d.name} ({d.group})
+                </option>
+              ))
+            )}
           </select>
         </div>
 

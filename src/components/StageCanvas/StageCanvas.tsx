@@ -417,12 +417,21 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     return () => cancelAnimationFrame(animId);
   }, [render]);
 
-  // ZOOM CON LA RUEDA DEL RATÓN
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
-    setZoom((prev) => clamp(Math.round(prev * zoomFactor * 100) / 100, 0.6, 4.5));
-  };
+  // PREVENCIÓN ESTRICTA DE ZOOM EN LA PESTAÑA DEL NAVEGADOR EN LAPTOPS
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
+      setZoom((prev) => clamp(Math.round(prev * zoomFactor * 100) / 100, 0.6, 4.5));
+    };
+
+    canvas.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleNativeWheel);
+  }, []);
 
   // MANEJO DE POINTER (DRAG & DROP, PANEO Y CURVAS)
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -634,7 +643,6 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
       <canvas
         ref={canvasRef}
-        onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

@@ -21,11 +21,11 @@ export const LiveRoomModal: React.FC<LiveRoomModalProps> = ({
     if (typeof window !== 'undefined') {
       const h = window.location.host;
       if (h.includes('localhost') || h.includes('127.0.0.1')) {
-        return '172.17.23.194:5173'; // IP local autodetectada en la red de la máquina
+        return '192.168.1.2:5173'; // IP activa de la red Wi-Fi de esta máquina
       }
       return h;
     }
-    return '172.17.23.194:5173';
+    return '192.168.1.2:5173';
   });
 
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
@@ -125,16 +125,37 @@ export const LiveRoomModal: React.FC<LiveRoomModalProps> = ({
             </button>
           </div>
 
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-2 flex items-center gap-2">
-            <span className="text-xs text-slate-500 font-bold uppercase pl-1">HOST:</span>
-            <input
-              type="text"
-              value={customHost}
-              onChange={(e) => setCustomHost(e.target.value)}
-              className="bg-transparent text-xs font-mono text-emerald-400 font-bold flex-1 outline-none"
-              placeholder="IP o dominio:puerto"
-              title="Dirección IP de tu laptop en la red local"
-            />
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-2 flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500 font-bold uppercase pl-1">HOST:</span>
+              <input
+                type="text"
+                value={customHost}
+                onChange={(e) => setCustomHost(e.target.value)}
+                className="bg-transparent text-xs font-mono text-emerald-400 font-bold flex-1 outline-none"
+                placeholder="IP o dominio:puerto"
+                title="Dirección IP de tu laptop en la red local"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 pt-1 border-t border-slate-800/60 text-[10px]">
+              <span className="text-slate-500">Atajos:</span>
+              <button
+                type="button"
+                onClick={() => setCustomHost('192.168.1.2:5173')}
+                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono transition"
+                title="Usar IP de la red Wi-Fi actual"
+              >
+                192.168.1.2:5173 (Wi-Fi)
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomHost('localhost:5173')}
+                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 font-mono transition"
+                title="Usar localhost para pruebas en esta laptop"
+              >
+                localhost
+              </button>
+            </div>
           </div>
         </div>
 

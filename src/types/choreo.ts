@@ -47,6 +47,40 @@ export interface ChoreoProject {
   audioFileName?: string;
 }
 
+// Modelos de Espacio de Trabajo Modular (Adobe Audition / Windows Snap)
+export type PanelId = 'dancers' | 'formations' | 'stage' | 'timeline';
+export type DockZone = 'left' | 'right' | 'bottom' | 'top' | 'floating' | 'hidden';
+
+export interface FloatingWindowConfig {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMinimized?: boolean;
+}
+
+export interface PanelConfig {
+  dock: DockZone;
+  floating?: FloatingWindowConfig;
+  isCollapsed?: boolean;
+  order?: number;
+  customWidth?: number;
+  customHeight?: number;
+}
+
+export interface WorkspaceLayout {
+  panels: Record<PanelId, PanelConfig>;
+}
+
+export interface ChoreoSession {
+  version: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  project: ChoreoProject;
+  layout?: WorkspaceLayout;
+}
+
 export interface InterpolatedDancerState {
   dancerId: string;
   x: number;
@@ -80,7 +114,7 @@ export type ViewMode = 'choreographer' | 'dancer';
 export type SpeedRate = 0.5 | 0.75 | 1;
 
 export interface RealtimeSyncPayload {
-  type: 'SYNC_TIME' | 'PLAY_STATE' | 'FULL_STATE' | 'FORMATION_SELECT' | 'DANCER_SELECT' | 'JOIN_ROOM';
+  type: 'SYNC_TIME' | 'PLAY_STATE' | 'FULL_STATE' | 'FORMATION_SELECT' | 'DANCER_SELECT' | 'JOIN_ROOM' | 'REQUEST_SYNC';
   roomId: string;
   senderId: string;
   timestamp: number;

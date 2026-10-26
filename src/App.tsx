@@ -7,14 +7,24 @@ import {
   Beat, 
   ViewMode, 
   SpeedRate, 
-  CollisionEvent 
+  CollisionEvent,
+  PanelId,
+  DockZone,
+  WorkspaceLayout,
+  ChoreoSession
 } from './types/choreo';
 import { 
   createDemoProject, 
+  createBlankProject,
   saveProjectToLocalStorage, 
   loadProjectFromLocalStorage, 
+  saveSessionToLocalStorage,
+  loadSessionFromLocalStorage,
+  exportSessionToFile,
+  importSessionFromFile,
   exportProjectToJsonFile, 
   importProjectFromJsonFile, 
+  getDefaultWorkspaceLayout,
   DANCER_COLORS 
 } from './utils/storage';
 import { globalAudioEngine, generateBeatsForDuration } from './utils/audioSynthesizer';
@@ -22,21 +32,63 @@ import { scanProjectCollisions } from './utils/collision';
 import { calculateDancersPose } from './utils/interpolation';
 import { realtimeManager } from './utils/realtime';
 
+import { AppMenuBar } from './components/Header/AppMenuBar';
 import { Header } from './components/Header/Header';
 import { StageCanvas } from './components/StageCanvas/StageCanvas';
 import { Timeline } from './components/Timeline/Timeline';
 import { AudioControls } from './components/AudioEngine/AudioControls';
-import { ChoreographerStudio } from './components/ChoreographerStudio/ChoreographerStudio';
+import { DancersPanel } from './components/ChoreographerStudio/DancersPanel';
+import { FormationsPanel } from './components/ChoreographerStudio/FormationsPanel';
+import { SnapLayoutOverlay } from './components/ChoreographerStudio/SnapLayoutOverlay';
+import { FloatingPanel } from './components/ChoreographerStudio/FloatingPanel';
 import { DancerView } from './components/DancerView/DancerView';
 import { LiveRoomModal } from './components/RealtimeRoom/LiveRoomModal';
-import { Compass, GitCommit, AlertTriangle } from 'lucide-react';
+import { 
+  Compass, 
+  GitCommit, 
+  AlertTriangle, 
+  GripVertical, 
+  ArrowUpDown, 
+  ExternalLink, 
+  HelpCircle, 
+  X, 
+  Keyboard, 
+  ShieldCheck 
+} from 'lucide-react';
 
 export const App: React.FC = () => {
-  // Inicialización de proyecto desde localStorage o demo
+  // Inicialización de proyecto y sesión desde localStorage o demo
   const [project, setProject] = useState<ChoreoProject>(() => {
+    const savedSession = loadSessionFromLocalStorage();
+    if (savedSession?.project && Array.isArray(savedSession.project.formations)) {
+      return savedSession.project;
+    }
     const saved = loadProjectFromLocalStorage();
     return saved || createDemoProject();
   });
+
+  const [sessionName, setSessionName] = useState<string>(() => {
+    const saved = loadSessionFromLocalStorage();
+    return saved?.name || 'Sesión Coreográfica Principal';
+  });
+
+  // Espacio de trabajo modular (Estilo Adobe Audition / Premiere & Windows 11 Snap)
+  const [layout, setLayout] = useState<WorkspaceLayout>(() => {
+    const saved = loadSessionFromLocalStorage();
+    return saved?.layout || getDefaultWorkspaceLayout();
+  });
+
+  const [visiblePanels, setVisiblePanels] = useState<Record<PanelId, boolean>>({
+    dancers: true,
+    formations: true,
+    stage: true,
+    timeline: true,
+  });
+
+  // Estados de arrastre con Snap Layouts estilo Windows 11
+  const [isDraggingSnap, setIsDraggingSnap] = useState<boolean>(false);
+  const [activeDragPanel, setActiveDragPanel] = useState<PanelId | null>(null);
+  const [hoveredZone, setHoveredZone] = useState<DockZone | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window !== 'undefined') {
@@ -65,23 +117,35 @@ export const App: React.FC = () => {
 
   // Selecciones activas
   const [selectedFormationId, setSelectedFormationId] = useState<string>(() => project.formations[0]?.id || '');
+  const [selectedFormationIds, setSelectedFormationIds] = useState<string[]>(() => 
+    project.formations[0]?.id ? [project.formations[0].id] : []
+  );
   const [selectedDancerId, setSelectedDancerId] = useState<string | null>(() => project.dancers[0]?.id || null);
 
-  // Modos de visualización y Espacio de Trabajo Adobe Audition Style
+  // Modos de visualización y Modales
   const [isMirror, setIsMirror] = useState<boolean>(false);
   const [showAllPaths, setShowAllPaths] = useState<boolean>(false);
   const [isLiveModalOpen, setIsLiveModalOpen] = useState<boolean>(false);
-  const [sidebarWidth, setSidebarWidth] = useState<number>(260);
-  const [sidebarDock, setSidebarDock] = useState<'left' | 'right'>('left');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  const [timelineHeight, setTimelineHeight] = useState<number>(180);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState<boolean>(false);
+  const [showOfflineHelp, setShowOfflineHelp] = useState<boolean>(false);
+
+  // Dimensiones de paneles resizables
+  const [sidebarWidth, setSidebarWidth] = useState<number>(270);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(270);
+  const [timelineHeight, setTimelineHeight] = useState<number>(190);
 
   // Redimensionamiento interactivo de paneles (Splitters)
   const isResizingSidebar = useRef(false);
+  const isResizingRightSidebar = useRef(false);
   const isResizingTimeline = useRef(false);
 
   const startResizeSidebar = (e: React.PointerEvent) => {
     isResizingSidebar.current = true;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const startResizeRightSidebar = (e: React.PointerEvent) => {
+    isResizingRightSidebar.current = true;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
@@ -92,20 +156,27 @@ export const App: React.FC = () => {
 
   const handlePointerMoveGlobal = (e: React.PointerEvent) => {
     if (isResizingSidebar.current) {
-      if (sidebarDock === 'left') {
-        setSidebarWidth(Math.max(180, Math.min(500, e.clientX)));
-      } else {
-        setSidebarWidth(Math.max(180, Math.min(500, window.innerWidth - e.clientX)));
-      }
+      setSidebarWidth(Math.max(180, Math.min(500, e.clientX)));
+    }
+    if (isResizingRightSidebar.current) {
+      setRightSidebarWidth(Math.max(180, Math.min(500, window.innerWidth - e.clientX)));
     }
     if (isResizingTimeline.current) {
-      setTimelineHeight(Math.max(110, Math.min(380, window.innerHeight - e.clientY)));
+      if (layout.panels.timeline.dock === 'top') {
+        setTimelineHeight(Math.max(120, Math.min(400, e.clientY - 60)));
+      } else {
+        setTimelineHeight(Math.max(120, Math.min(400, window.innerHeight - e.clientY)));
+      }
     }
   };
 
   const handlePointerUpGlobal = (e: React.PointerEvent) => {
     if (isResizingSidebar.current) {
       isResizingSidebar.current = false;
+      try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+    }
+    if (isResizingRightSidebar.current) {
+      isResizingRightSidebar.current = false;
       try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
     }
     if (isResizingTimeline.current) {
@@ -145,9 +216,11 @@ export const App: React.FC = () => {
   const playbackRateRef = useRef(playbackRate);
   playbackRateRef.current = playbackRate;
 
-  // Sincronización en tiempo real inicial
+  // Sincronización en tiempo real inicial y manejo de REQUEST_SYNC
   useEffect(() => {
     realtimeManager.setRoomId(roomId);
+    realtimeManager.connectWebSocket();
+
     const unsubscribe = realtimeManager.subscribe((payload) => {
       if (payload.type === 'SYNC_TIME' || payload.type === 'PLAY_STATE') {
         setCurrentTimeMs(payload.currentTimeMs);
@@ -160,11 +233,47 @@ export const App: React.FC = () => {
       } else if (payload.type === 'FULL_STATE' && payload.project) {
         setProject(payload.project);
         saveProjectToLocalStorage(payload.project);
+        if (payload.currentTimeMs !== undefined) {
+          setCurrentTimeMs(payload.currentTimeMs);
+          currentTimeMsRef.current = payload.currentTimeMs;
+        }
+        if (payload.isPlaying !== undefined) {
+          setIsPlaying(payload.isPlaying);
+          isPlayingRef.current = payload.isPlaying;
+        }
+      } else if (payload.type === 'REQUEST_SYNC') {
+        // Enviar el estado completo del proyecto al nuevo bailarín conectado
+        realtimeManager.broadcast({
+          type: 'FULL_STATE',
+          roomId,
+          senderId: realtimeManager.senderId,
+          timestamp: Date.now(),
+          currentTimeMs: currentTimeMsRef.current,
+          isPlaying: isPlayingRef.current,
+          playbackRate: playbackRateRef.current,
+          project: projectRef.current,
+          activeFormationId: selectedFormationId,
+        });
       }
     });
 
+    // Si estamos en modo bailarín, solicitar sincronización inmediatamente
+    if (viewMode === 'dancer') {
+      setTimeout(() => {
+        realtimeManager.broadcast({
+          type: 'REQUEST_SYNC',
+          roomId,
+          senderId: realtimeManager.senderId,
+          timestamp: Date.now(),
+          currentTimeMs: 0,
+          isPlaying: false,
+          playbackRate: 1,
+        });
+      }, 400);
+    }
+
     return () => unsubscribe();
-  }, [roomId]);
+  }, [roomId, viewMode, selectedFormationId]);
 
   // Recalcular colisiones globales y picos sintéticos al cambiar el proyecto
   useEffect(() => {
@@ -180,10 +289,19 @@ export const App: React.FC = () => {
     }
   }, [project.formations, project.dancers, project.beats, project.durationMs]);
 
-  // Auto-guardado en localStorage
+  // Auto-guardado de sesión y proyecto en localStorage
   useEffect(() => {
     saveProjectToLocalStorage(project);
-  }, [project]);
+    const session: ChoreoSession = {
+      version: '1.0.0',
+      name: sessionName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      project,
+      layout,
+    };
+    saveSessionToLocalStorage(session);
+  }, [project, layout, sessionName]);
 
   // Encontrar el conteo activo actual
   const currentBeat = project.beats.reduce<Beat | null>((acc, b) => {
@@ -299,31 +417,27 @@ export const App: React.FC = () => {
       if (animTimeRef.current.resetNextCount) {
         phraseIndex = lastBeat.phraseIndex + 1;
         countNumber = 1;
+        animTimeRef.current.resetNextCount = false;
       } else {
-        countNumber = (lastBeat.countNumber % 8) + 1;
-        phraseIndex = lastBeat.phraseIndex + (countNumber === 1 ? 1 : 0);
+        if (lastBeat.countNumber >= 8) {
+          phraseIndex = lastBeat.phraseIndex + 1;
+          countNumber = 1;
+        } else {
+          phraseIndex = lastBeat.phraseIndex;
+          countNumber = lastBeat.countNumber + 1;
+        }
       }
     }
 
-    animTimeRef.current.resetNextCount = false;
-
     const newBeat: Beat = {
-      id: 'beat_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      id: 'beat_' + Date.now(),
       timestampMs: cur,
       phraseIndex,
       countNumber,
     };
 
-    beats.push(newBeat);
-    beats.sort((a, b) => a.timestampMs - b.timestampMs);
-
-    // Reproducir feedback sonoro inmediato
-    globalAudioEngine.playBeatClick(countNumber, 0.45);
-
-    setProject((prev) => ({
-      ...prev,
-      beats,
-    }));
+    const updated = [...beats, newBeat].sort((a, b) => a.timestampMs - b.timestampMs);
+    setProject((prev) => ({ ...prev, beats: updated }));
   }, []);
 
   const handleResetCountToOne = () => {
@@ -331,131 +445,75 @@ export const App: React.FC = () => {
   };
 
   const handleClearBeats = () => {
-    if (window.confirm('¿Seguro que deseas borrar todos los conteos de 8 tiempos?')) {
+    if (window.confirm('¿Deseas borrar todos los conteos marcados?')) {
       setProject((prev) => ({ ...prev, beats: [] }));
     }
   };
 
-  // Paso conteo por conteo (Flechas teclado)
-  const handleStepCount = useCallback(
-    (direction: 1 | -1) => {
-      const beats = projectRef.current.beats;
-      if (beats.length === 0) return;
-
-      const cur = currentTimeMsRef.current;
-      if (direction > 0) {
-        const next = beats.find((b) => b.timestampMs > cur + 10);
-        if (next) handleSeek(next.timestampMs);
-      } else {
-        const prevs = beats.filter((b) => b.timestampMs < cur - 10);
-        if (prevs.length > 0) {
-          handleSeek(prevs[prevs.length - 1].timestampMs);
-        } else {
-          handleSeek(0);
-        }
-      }
-    },
-    [handleSeek]
-  );
-
-  // Loop a 60 FPS con Web Audio API y requestAnimationFrame
+  // Ciclo principal de animación a 60 FPS
   useEffect(() => {
     let animId: number;
 
-    const frame = () => {
+    const tick = () => {
       if (isPlayingRef.current) {
-        const aud = globalAudioEngine.getAudioElement();
-        let nextCur: number;
+        const now = performance.now();
+        const delta = (now - animTimeRef.current.t0) * playbackRateRef.current;
+        let nextTime = animTimeRef.current.c0 + delta;
 
-        if (aud && !globalAudioEngine.isUsingSyntheticAudio() && !aud.paused) {
-          nextCur = aud.currentTime * 1000;
-        } else {
-          const now = performance.now();
-          const delta = (now - animTimeRef.current.t0) * playbackRateRef.current;
-          nextCur = animTimeRef.current.c0 + delta;
-        }
+        // Soporte bucle por Ocho
+        if (isLoopPhraseRef.current && projectRef.current.beats.length > 0) {
+          const activeB = projectRef.current.beats.reduce<Beat | null>((acc, b) => {
+            if (b.timestampMs <= nextTime) return b;
+            return acc;
+          }, null);
 
-        // Bucle Ocho
-        if (isLoopPhraseRef.current && currentBeat) {
-          const currentPhrase = currentBeat.phraseIndex;
-          const beatsInPhrase = projectRef.current.beats.filter(
-            (b) => b.phraseIndex === currentPhrase
-          );
-          if (beatsInPhrase.length > 0) {
-            const nextPhraseBeat = projectRef.current.beats.find(
-              (b) => b.phraseIndex === currentPhrase + 1
+          if (activeB) {
+            const phraseBeats = projectRef.current.beats.filter(
+              (b) => b.phraseIndex === activeB.phraseIndex
             );
-            const loopEnd = nextPhraseBeat
-              ? nextPhraseBeat.timestampMs
-              : projectRef.current.durationMs;
+            const pStart = phraseBeats[0]?.timestampMs || 0;
+            const pEnd = (phraseBeats[phraseBeats.length - 1]?.timestampMs || 0) + 600;
 
-            if (nextCur >= loopEnd) {
-              handleSeek(beatsInPhrase[0].timestampMs, false);
-              nextCur = beatsInPhrase[0].timestampMs;
+            if (nextTime >= pEnd && pEnd > pStart) {
+              nextTime = pStart;
+              animTimeRef.current.t0 = now;
+              animTimeRef.current.c0 = pStart;
+              const aud = globalAudioEngine.getAudioElement();
+              if (aud && !globalAudioEngine.isUsingSyntheticAudio()) {
+                aud.currentTime = pStart / 1000;
+              }
             }
           }
         }
 
-        // Fin de la pista
-        if (nextCur >= projectRef.current.durationMs) {
-          nextCur = projectRef.current.durationMs;
+        // Fin de canción
+        if (nextTime >= projectRef.current.durationMs) {
+          nextTime = projectRef.current.durationMs;
           setIsPlaying(false);
           isPlayingRef.current = false;
+          const aud = globalAudioEngine.getAudioElement();
+          if (aud) aud.pause();
         }
 
-        // Metrónomo en tiempo real
+        // Metrónomo sintético con Web Audio API
         if (isMetronomeEnabledRef.current) {
-          const last = animTimeRef.current.lastCur;
           projectRef.current.beats.forEach((b) => {
-            if (b.timestampMs > last && b.timestampMs <= nextCur) {
+            if (b.timestampMs > animTimeRef.current.lastCur && b.timestampMs <= nextTime) {
               globalAudioEngine.playBeatClick(b.countNumber);
             }
           });
         }
 
-        animTimeRef.current.lastCur = nextCur;
-        setCurrentTimeMs(nextCur);
-        currentTimeMsRef.current = nextCur;
+        animTimeRef.current.lastCur = nextTime;
+        setCurrentTimeMs(nextTime);
+        currentTimeMsRef.current = nextTime;
       }
-
-      animId = requestAnimationFrame(frame);
+      animId = requestAnimationFrame(tick);
     };
 
-    animId = requestAnimationFrame(frame);
+    animId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animId);
-  }, [handleSeek, currentBeat]);
-
-  // Atajos de teclado activos
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
-        return;
-      }
-
-      const key = e.key.toLowerCase();
-
-      if (e.code === 'Space' || key === 's') {
-        e.preventDefault();
-        if (isRecordCountsMode) {
-          handleTapBeat();
-        } else {
-          handleTogglePlay();
-        }
-      } else if (key === 't') {
-        e.preventDefault();
-        handleTapBeat();
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        handleStepCount(1);
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        handleStepCount(-1);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleTogglePlay, handleTapBeat, handleStepCount, isRecordCountsMode]);
+  }, []);
 
   // CRUD de Bailarines
   const handleAddDancer = () => {
@@ -466,23 +524,21 @@ export const App: React.FC = () => {
       slotNumber: nextSlot,
       name: `Bailarín ${nextSlot}`,
       color,
-      group: nextSlot <= 4 ? 'Alfa' : 'Beta',
+      group: nextSlot <= 4 ? 'Grupo Alfa' : 'Grupo Beta',
       defaultLevel: 'medio',
     };
 
-    const newPosition: DancerPosition = {
-      x: 0.5,
-      y: 0.5,
-      level: 'medio',
-      curveOffset: { cx: 0, cy: 0 },
-      notes: '',
-    };
-
-    const updatedFormations: Formation[] = project.formations.map((f) => ({
+    const updatedFormations = project.formations.map((f) => ({
       ...f,
       positions: {
         ...f.positions,
-        [newDancer.id]: newPosition,
+        [newDancer.id]: {
+          x: 0.5,
+          y: 0.5,
+          level: 'medio' as const,
+          curveOffset: { cx: 0, cy: 0 },
+          notes: '',
+        },
       },
     }));
 
@@ -554,6 +610,7 @@ export const App: React.FC = () => {
       formations: updated,
     }));
     setSelectedFormationId(newFormation.id);
+    setSelectedFormationIds([newFormation.id]);
   };
 
   const handleUpdateFormation = (formationId: string, updates: Partial<Formation>) => {
@@ -574,7 +631,49 @@ export const App: React.FC = () => {
     }));
     if (selectedFormationId === formationId) {
       setSelectedFormationId(updated[0].id);
+      setSelectedFormationIds([updated[0].id]);
     }
+  };
+
+  const handleDeleteFormations = (formationIds: string[]) => {
+    if (project.formations.length <= formationIds.length) {
+      alert('Debe quedar al menos una formación en el proyecto.');
+      return;
+    }
+    const updated = project.formations.filter((f) => !formationIds.includes(f.id));
+    setProject((prev) => ({
+      ...prev,
+      formations: updated,
+    }));
+    setSelectedFormationId(updated[0].id);
+    setSelectedFormationIds([updated[0].id]);
+  };
+
+  const handleDuplicateFormation = (fid?: string) => {
+    const targetId = fid || selectedFormationId;
+    const form = project.formations.find((f) => f.id === targetId);
+    if (!form) return;
+
+    const newStartTime = form.startTimeMs + form.holdDurationMs + form.transitionDurationMs + 500;
+    const duplicated: Formation = {
+      ...form,
+      id: 'form_' + Date.now(),
+      name: `${form.name} (Copia)`,
+      startTimeMs: Math.min(project.durationMs - 2000, Math.round(newStartTime)),
+      positions: JSON.parse(JSON.stringify(form.positions)),
+    };
+
+    const updated = [...project.formations, duplicated].sort((a, b) => a.startTimeMs - b.startTimeMs);
+    setProject((prev) => ({
+      ...prev,
+      formations: updated,
+    }));
+    setSelectedFormationId(duplicated.id);
+    setSelectedFormationIds([duplicated.id]);
+  };
+
+  const handleSelectAllFormations = () => {
+    setSelectedFormationIds(project.formations.map((f) => f.id));
   };
 
   // Posicionamiento de bailarines en el canvas
@@ -633,7 +732,206 @@ export const App: React.FC = () => {
     });
   };
 
-  // Manejo de Archivos Audio y Proyecto
+  // Manejo de Sesiones y Archivos
+  const handleNewSession = () => {
+    if (window.confirm('¿Crear una nueva sesión en blanco?')) {
+      handleStop();
+      const blank = createBlankProject();
+      const newLayout = getDefaultWorkspaceLayout();
+      setProject(blank);
+      setLayout(newLayout);
+      setSessionName('Nueva Sesión Coreográfica');
+      setSelectedFormationId(blank.formations[0]?.id || '');
+      setSelectedFormationIds(blank.formations[0]?.id ? [blank.formations[0].id] : []);
+      setSelectedDancerId(blank.dancers[0]?.id || null);
+      handleSeek(0);
+    }
+  };
+
+  const handleOpenSession = async (file: File) => {
+    try {
+      handleStop();
+      const loaded = await importSessionFromFile(file);
+      setProject(loaded.project);
+      if (loaded.layout) setLayout(loaded.layout);
+      if (loaded.name) setSessionName(loaded.name);
+      setSelectedFormationId(loaded.project.formations[0]?.id || '');
+      setSelectedFormationIds(loaded.project.formations[0]?.id ? [loaded.project.formations[0].id] : []);
+      setSelectedDancerId(loaded.project.dancers[0]?.id || null);
+      handleSeek(0);
+    } catch (err: any) {
+      alert(err.message || 'Error abriendo archivo de sesión (.choreo).');
+    }
+  };
+
+  const handleSaveSession = () => {
+    const session: ChoreoSession = {
+      version: '1.0.0',
+      name: sessionName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      project,
+      layout,
+    };
+    saveSessionToLocalStorage(session);
+    exportSessionToFile(session, sessionName);
+  };
+
+  const handleSaveSessionAs = () => {
+    const newName = window.prompt('Introduce el nombre para la sesión:', sessionName);
+    if (newName && newName.trim()) {
+      setSessionName(newName.trim());
+      const session: ChoreoSession = {
+        version: '1.0.0',
+        name: newName.trim(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        project: { ...project, name: newName.trim() },
+        layout,
+      };
+      saveSessionToLocalStorage(session);
+      exportSessionToFile(session, newName.trim());
+    }
+  };
+
+  // ATAJOS DE TECLADO GLOBALES
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        return;
+      }
+
+      // Ctrl+S / Cmd+S -> Guardar sesión
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveSession();
+        return;
+      }
+
+      // Ctrl+N -> Nueva sesión
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        handleNewSession();
+        return;
+      }
+
+      // Ctrl+A -> Seleccionar todas las formaciones
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        handleSelectAllFormations();
+        return;
+      }
+
+      // Ctrl+D -> Duplicar formación
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        handleDuplicateFormation();
+        return;
+      }
+
+      // Espacio o Tecla S -> Play/Pausa o Tap Beat
+      if (e.code === 'Space' || e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (isRecordCountsMode) {
+          handleTapBeat();
+        } else {
+          handleTogglePlay();
+        }
+        return;
+      }
+
+      // Flechas -> Avanzar / retroceder entre conteos
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const nextB = project.beats.find((b) => b.timestampMs > currentTimeMs + 10);
+        if (nextB) handleSeek(nextB.timestampMs);
+        else handleSeek(currentTimeMs + 500);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const prevBeats = project.beats.filter((b) => b.timestampMs < currentTimeMs - 10);
+        if (prevBeats.length > 0) {
+          handleSeek(prevBeats[prevBeats.length - 1].timestampMs);
+        } else {
+          handleSeek(Math.max(0, currentTimeMs - 500));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [handleSaveSession, isRecordCountsMode, handleTapBeat, handleTogglePlay, project.beats, currentTimeMs, handleSeek]);
+
+  const handleResetDemo = () => {
+    if (window.confirm('¿Restaurar la coreografía demo completa (8 bailarines, 3 formaciones)?')) {
+      handleStop();
+      globalAudioEngine.setSyntheticMode(true);
+      const demo = createDemoProject();
+      setProject(demo);
+      setSelectedFormationId(demo.formations[0].id);
+      setSelectedFormationIds([demo.formations[0].id]);
+      setSelectedDancerId(demo.dancers[0].id);
+      handleSeek(0);
+    }
+  };
+
+  const handleResetLayout = () => {
+    setLayout(getDefaultWorkspaceLayout());
+    setVisiblePanels({
+      dancers: true,
+      formations: true,
+      stage: true,
+      timeline: true,
+    });
+  };
+
+  const handleTogglePanel = (panelId: PanelId) => {
+    setVisiblePanels((prev) => ({
+      ...prev,
+      [panelId]: !prev[panelId],
+    }));
+  };
+
+  // Manejo de Arrastre Snap Layouts estilo Windows 11
+  const handleStartDragSnap = (panelId: PanelId) => {
+    setActiveDragPanel(panelId);
+    setIsDraggingSnap(true);
+    setHoveredZone(null);
+  };
+
+  const handleDropZone = (zone: DockZone) => {
+    if (!activeDragPanel) {
+      setIsDraggingSnap(false);
+      return;
+    }
+    setLayout((prev) => ({
+      ...prev,
+      panels: {
+        ...prev.panels,
+        [activeDragPanel]: {
+          ...prev.panels[activeDragPanel],
+          dock: zone,
+        },
+      },
+    }));
+    setIsDraggingSnap(false);
+    setActiveDragPanel(null);
+    setHoveredZone(null);
+  };
+
+  const handleQuickDock = (panelId: PanelId, zone: DockZone) => {
+    setLayout((prev) => ({
+      ...prev,
+      panels: {
+        ...prev.panels,
+        [panelId]: {
+          ...prev.panels[panelId],
+          dock: zone,
+        },
+      },
+    }));
+  };
+
+  // Carga de archivos de Audio
   const handleUploadAudio = async (file: File) => {
     try {
       handleStop();
@@ -669,44 +967,189 @@ export const App: React.FC = () => {
     }));
   };
 
-  const handleResetDemo = () => {
-    if (window.confirm('¿Restaurar la coreografía demo completa (8 bailarines, 3 formaciones)?')) {
-      handleStop();
-      globalAudioEngine.setSyntheticMode(true);
-      const demo = createDemoProject();
-      setProject(demo);
-      setSelectedFormationId(demo.formations[0].id);
-      setSelectedDancerId(demo.dancers[0].id);
-      handleSeek(0);
-    }
-  };
+  // Renderizadores de Paneles
+  const renderDancersContent = () => (
+    <DancersPanel
+      dancers={project.dancers}
+      activeFormation={project.formations.find((f) => f.id === selectedFormationId)}
+      selectedDancerId={selectedDancerId}
+      currentDock={layout.panels.dancers.dock}
+      onSelectDancer={setSelectedDancerId}
+      onAddDancer={handleAddDancer}
+      onUpdateDancer={handleUpdateDancer}
+      onDeleteDancer={handleDeleteDancer}
+      onUpdateFormation={handleUpdateFormation}
+      onStartDragSnap={() => handleStartDragSnap('dancers')}
+      onQuickDock={(zone) => handleQuickDock('dancers', zone)}
+    />
+  );
 
-  const handleExportJson = () => {
-    exportProjectToJsonFile(project);
-  };
+  const renderFormationsContent = () => (
+    <FormationsPanel
+      formations={project.formations}
+      selectedFormationId={selectedFormationId}
+      selectedFormationIds={selectedFormationIds}
+      currentDock={layout.panels.formations.dock}
+      onSelectFormation={(fid, isMulti) => {
+        setSelectedFormationId(fid);
+        if (isMulti) {
+          setSelectedFormationIds((prev) =>
+            prev.includes(fid) ? prev.filter((id) => id !== fid) : [...prev, fid]
+          );
+        } else {
+          setSelectedFormationIds([fid]);
+        }
+        const f = project.formations.find((item) => item.id === fid);
+        if (f) handleSeek(f.startTimeMs);
+      }}
+      onAddFormation={() => handleAddFormationAtTime(currentTimeMs)}
+      onUpdateFormation={handleUpdateFormation}
+      onDeleteFormation={handleDeleteFormation}
+      onDeleteFormations={handleDeleteFormations}
+      onDuplicateFormation={handleDuplicateFormation}
+      onStartDragSnap={() => handleStartDragSnap('formations')}
+      onQuickDock={(zone) => handleQuickDock('formations', zone)}
+    />
+  );
 
-  const handleImportJson = async (file: File) => {
-    try {
-      const imported = await importProjectFromJsonFile(file);
-      handleStop();
-      setProject(imported);
-      setSelectedFormationId(imported.formations[0]?.id || '');
-      setSelectedDancerId(imported.dancers[0]?.id || null);
-      handleSeek(0);
-    } catch (err: any) {
-      alert(err.message || 'Error importando el archivo JSON.');
-    }
-  };
+  const renderTimelineContent = () => (
+    <div className="flex flex-col w-full h-full bg-slate-900 border-slate-800">
+      {/* Barra de título con 6 puntos para arrastre snap */}
+      <div 
+        onPointerDown={() => handleStartDragSnap('timeline')}
+        className="flex items-center justify-between px-3 py-1 bg-slate-950/90 border-b border-slate-800 text-[11px] text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-800/60 transition group select-none"
+        title="Arrastra desde los 6 puntos para mover la línea de tiempo arriba, abajo o flotante"
+      >
+        <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-violet-400">
+          <div className="p-0.5 rounded bg-slate-800 group-hover:bg-violet-500/20 group-hover:text-violet-300 transition">
+            <GripVertical className="w-3.5 h-3.5 text-slate-500 group-hover:text-violet-400" />
+          </div>
+          <span>Línea de Tiempo y Audio</span>
+        </div>
+        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => handleQuickDock('timeline', layout.panels.timeline.dock === 'bottom' ? 'top' : 'bottom')}
+            className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
+            title={layout.panels.timeline.dock === 'bottom' ? 'Mover ARRIBA' : 'Mover ABAJO'}
+          >
+            <ArrowUpDown className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickDock('timeline', 'floating')}
+            className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
+            title="Convertir línea de tiempo en ventana flotante"
+          >
+            <ExternalLink className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      <AudioControls
+        isPlaying={isPlaying}
+        currentTimeMs={currentTimeMs}
+        durationMs={project.durationMs}
+        playbackRate={playbackRate}
+        isLoopPhrase={isLoopPhrase}
+        isMetronomeEnabled={isMetronomeEnabled}
+        isRecordCountsMode={isRecordCountsMode}
+        onTogglePlay={handleTogglePlay}
+        onStop={handleStop}
+        onChangeRate={(rate) => {
+          setPlaybackRate(rate);
+          const aud = globalAudioEngine.getAudioElement();
+          if (aud) aud.playbackRate = rate;
+        }}
+        onToggleLoop={() => setIsLoopPhrase((prev) => !prev)}
+        onToggleMetronome={() => setIsMetronomeEnabled((prev) => !prev)}
+        onToggleRecordCounts={() => setIsRecordCountsMode((prev) => !prev)}
+        onTapBeat={handleTapBeat}
+        onResetCountToOne={handleResetCountToOne}
+        onClearBeats={handleClearBeats}
+      />
+
+      <div className="flex-1 min-h-0">
+        <Timeline
+          durationMs={project.durationMs}
+          currentTimeMs={currentTimeMs}
+          beats={project.beats}
+          formations={project.formations}
+          peaks={peaks}
+          selectedFormationId={selectedFormationId}
+          selectedFormationIds={selectedFormationIds}
+          collisionTimes={collisionTimes}
+          onSeek={(t) => handleSeek(t)}
+          onSelectFormation={(fid, isMulti) => {
+            setSelectedFormationId(fid);
+            if (isMulti) {
+              setSelectedFormationIds((prev) =>
+                prev.includes(fid) ? prev.filter((id) => id !== fid) : [...prev, fid]
+              );
+            } else {
+              setSelectedFormationIds([fid]);
+            }
+            const f = project.formations.find((item) => item.id === fid);
+            if (f) handleSeek(f.startTimeMs);
+          }}
+          onSelectMultipleFormations={(fids) => {
+            setSelectedFormationIds(fids);
+            if (fids.length > 0) setSelectedFormationId(fids[0]);
+          }}
+          onDeleteFormations={handleDeleteFormations}
+          onUpdateFormationTiming={(fid, s, h, t) => {
+            handleUpdateFormation(fid, {
+              startTimeMs: s,
+              holdDurationMs: h,
+              transitionDurationMs: t,
+            });
+          }}
+          onUpdateBeatTimestamp={(bid, t) => {
+            setProject((prev) => {
+              const updated = prev.beats.map((b) =>
+                b.id === bid ? { ...b, timestampMs: t } : b
+              );
+              return {
+                ...prev,
+                beats: updated.sort((a, b) => a.timestampMs - b.timestampMs),
+              };
+            });
+          }}
+          onAddFormationAtTime={handleAddFormationAtTime}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 font-sans select-none">
-      {/* 1. CABECERA PRINCIPAL */}
+      {/* 1. BARRA SUPERIOR DE APLICACIÓN ESTILO ADOBE AUDITION / PREMIERE (.choreo) */}
+      <AppMenuBar
+        sessionName={sessionName}
+        onNewSession={handleNewSession}
+        onOpenSession={handleOpenSession}
+        onSaveSession={handleSaveSession}
+        onSaveSessionAs={handleSaveSessionAs}
+        onResetDemo={handleResetDemo}
+        onAddDancer={handleAddDancer}
+        onAddFormation={() => handleAddFormationAtTime(currentTimeMs)}
+        onDeleteSelected={() => handleDeleteFormations(selectedFormationIds)}
+        onDuplicateFormation={() => handleDuplicateFormation(selectedFormationId)}
+        onSelectAllFormations={handleSelectAllFormations}
+        onResetLayout={handleResetLayout}
+        onTogglePanel={handleTogglePanel}
+        visiblePanels={visiblePanels}
+        onOpenShortcutsHelp={() => setShowShortcutsHelp(true)}
+        onOpenOfflineHelp={() => setShowOfflineHelp(true)}
+      />
+
+      {/* 2. CABECERA PRINCIPAL CON LOGO, MODOS Y CONTROLES CLAVE */}
       <Header
         viewMode={viewMode}
         setViewMode={setViewMode}
         currentBeat={currentBeat}
-        onExportJson={handleExportJson}
-        onImportJson={handleImportJson}
+        onExportJson={handleSaveSession}
+        onImportJson={handleOpenSession}
         onUploadAudio={handleUploadAudio}
         onResetDemo={handleResetDemo}
         onSyntheticAudio={handleSyntheticAudio}
@@ -714,60 +1157,59 @@ export const App: React.FC = () => {
         isRealtimeConnected={realtimeManager.isWsConnected()}
       />
 
-      {/* 2. ÁREA CENTRAL (ADOBE AUDITION STYLE: RESIZABLE & REORDERABLE PANELS) */}
+      {/* 3. LÍNEA DE TIEMPO ACOPLADA EN LA PARTE SUPERIOR (SI EL USUARIO LA ARRASTRÓ AHÍ) */}
+      {viewMode === 'choreographer' && layout.panels.timeline.dock === 'top' && visiblePanels.timeline && (
+        <>
+          <div style={{ height: `${timelineHeight}px` }} className="shrink-0 flex flex-col z-20">
+            {renderTimelineContent()}
+          </div>
+          <div
+            onPointerDown={startResizeTimeline}
+            className="h-1.5 hover:h-2 bg-slate-800 hover:bg-violet-500 cursor-row-resize transition-all z-30 shrink-0"
+            title="Arrastra para cambiar la altura de la pista de música"
+          />
+        </>
+      )}
+
+      {/* 4. ÁREA CENTRAL (ESPACIO DE TRABAJO MODULAR ADOBE + SNAP LAYOUTS) */}
       <main 
         onPointerMove={handlePointerMoveGlobal}
         onPointerUp={handlePointerUpGlobal}
         className="flex flex-1 min-h-0 overflow-hidden relative select-none"
       >
-        {/* Panel lateral en Modo Coreógrafo (Dock Izquierdo) */}
-        {viewMode === 'choreographer' && sidebarDock === 'left' && (
+        {/* PANEL LATERAL IZQUIERDO */}
+        {viewMode === 'choreographer' && (layout.panels.dancers.dock === 'left' || layout.panels.formations.dock === 'left') && (
           <>
-            <ChoreographerStudio
-              dancers={project.dancers}
-              formations={project.formations}
-              selectedFormationId={selectedFormationId}
-              selectedDancerId={selectedDancerId}
-              isMirror={isMirror}
-              showAllPaths={showAllPaths}
-              activeCollisions={activeCollisions}
-              sidebarDock={sidebarDock}
-              sidebarWidth={sidebarWidth}
-              isSidebarCollapsed={isSidebarCollapsed}
-              onToggleSidebarCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-              onToggleSidebarDock={() => setSidebarDock('right')}
-              onSelectDancer={setSelectedDancerId}
-              onSelectFormation={(fid) => {
-                setSelectedFormationId(fid);
-                const f = project.formations.find((item) => item.id === fid);
-                if (f) handleSeek(f.startTimeMs);
-              }}
-              onAddDancer={handleAddDancer}
-              onUpdateDancer={handleUpdateDancer}
-              onDeleteDancer={handleDeleteDancer}
-              onAddFormation={() => handleAddFormationAtTime(currentTimeMs)}
-              onUpdateFormation={handleUpdateFormation}
-              onDeleteFormation={handleDeleteFormation}
-              onToggleMirror={() => setIsMirror((prev) => !prev)}
-              onToggleShowPaths={() => setShowAllPaths((prev) => !prev)}
+            <aside 
+              style={{ width: `${sidebarWidth}px` }} 
+              className="shrink-0 bg-slate-900 border-r border-slate-800 p-2.5 flex flex-col gap-2.5 overflow-hidden z-10"
+            >
+              {layout.panels.dancers.dock === 'left' && visiblePanels.dancers && (
+                <div className="flex-1 min-h-0">
+                  {renderDancersContent()}
+                </div>
+              )}
+              {layout.panels.formations.dock === 'left' && visiblePanels.formations && (
+                <div className="flex-1 min-h-0">
+                  {renderFormationsContent()}
+                </div>
+              )}
+            </aside>
+            <div
+              onPointerDown={startResizeSidebar}
+              className="w-1.5 hover:w-2 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-all z-20 shrink-0"
+              title="Arrastra para cambiar el ancho del panel izquierdo"
             />
-            {/* Splitter vertical izquierdo para redimensionar */}
-            {!isSidebarCollapsed && (
-              <div
-                onPointerDown={startResizeSidebar}
-                className="w-1.5 hover:w-2 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-all z-20 shrink-0"
-                title="Arrastra para cambiar el ancho del panel lateral"
-              />
-            )}
           </>
         )}
 
-        {/* Lienzo del Escenario Central */}
+        {/* LIENZO DEL ESCENARIO CENTRAL */}
         <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden bg-slate-950 relative">
           {/* Barra de herramientas sobre el escenario */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-slate-900 border-b border-slate-800 select-none z-10">
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => setIsMirror((prev) => !prev)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-semibold transition ${
                   isMirror
@@ -781,6 +1223,7 @@ export const App: React.FC = () => {
               </button>
 
               <button
+                type="button"
                 onClick={() => setShowAllPaths((prev) => !prev)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-semibold transition ${
                   showAllPaths
@@ -825,7 +1268,7 @@ export const App: React.FC = () => {
             />
           </div>
 
-          {/* Tarjeta de Simulador en Modo Bailarín */}
+          {/* Tarjeta de Simulador en Modo Bailarín (Mobile-First) */}
           {viewMode === 'dancer' && (
             <DancerView
               dancers={project.dancers}
@@ -840,125 +1283,118 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        {/* Panel lateral en Modo Coreógrafo (Dock Derecho) */}
-        {viewMode === 'choreographer' && sidebarDock === 'right' && (
+        {/* PANEL LATERAL DERECHO */}
+        {viewMode === 'choreographer' && (layout.panels.dancers.dock === 'right' || layout.panels.formations.dock === 'right') && (
           <>
-            {!isSidebarCollapsed && (
-              <div
-                onPointerDown={startResizeSidebar}
-                className="w-1.5 hover:w-2 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-all z-20 shrink-0"
-                title="Arrastra para cambiar el ancho del panel lateral"
-              />
-            )}
-            <ChoreographerStudio
-              dancers={project.dancers}
-              formations={project.formations}
-              selectedFormationId={selectedFormationId}
-              selectedDancerId={selectedDancerId}
-              isMirror={isMirror}
-              showAllPaths={showAllPaths}
-              activeCollisions={activeCollisions}
-              sidebarDock={sidebarDock}
-              sidebarWidth={sidebarWidth}
-              isSidebarCollapsed={isSidebarCollapsed}
-              onToggleSidebarCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
-              onToggleSidebarDock={() => setSidebarDock('left')}
-              onSelectDancer={setSelectedDancerId}
-              onSelectFormation={(fid) => {
-                setSelectedFormationId(fid);
-                const f = project.formations.find((item) => item.id === fid);
-                if (f) handleSeek(f.startTimeMs);
-              }}
-              onAddDancer={handleAddDancer}
-              onUpdateDancer={handleUpdateDancer}
-              onDeleteDancer={handleDeleteDancer}
-              onAddFormation={() => handleAddFormationAtTime(currentTimeMs)}
-              onUpdateFormation={handleUpdateFormation}
-              onDeleteFormation={handleDeleteFormation}
-              onToggleMirror={() => setIsMirror((prev) => !prev)}
-              onToggleShowPaths={() => setShowAllPaths((prev) => !prev)}
+            <div
+              onPointerDown={startResizeRightSidebar}
+              className="w-1.5 hover:w-2 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-all z-20 shrink-0"
+              title="Arrastra para cambiar el ancho del panel derecho"
             />
+            <aside 
+              style={{ width: `${rightSidebarWidth}px` }} 
+              className="shrink-0 bg-slate-900 border-l border-slate-800 p-2.5 flex flex-col gap-2.5 overflow-hidden z-10"
+            >
+              {layout.panels.dancers.dock === 'right' && visiblePanels.dancers && (
+                <div className="flex-1 min-h-0">
+                  {renderDancersContent()}
+                </div>
+              )}
+              {layout.panels.formations.dock === 'right' && visiblePanels.formations && (
+                <div className="flex-1 min-h-0">
+                  {renderFormationsContent()}
+                </div>
+              )}
+            </aside>
           </>
         )}
       </main>
 
-      {/* 3. LÍNEA DE TIEMPO Y CONTROLES DE AUDIO (REDIMENSIONABLE VERTICALMENTE) */}
-      {viewMode === 'choreographer' && (
+      {/* 5. SECCIONES ACOPLADAS EN LA PARTE INFERIOR (SI SE ARRASTRARON ABAJO) */}
+      {viewMode === 'choreographer' && (layout.panels.dancers.dock === 'bottom' || layout.panels.formations.dock === 'bottom') && (
+        <div className="h-56 shrink-0 bg-slate-900 border-t border-slate-800 p-2.5 flex gap-2.5 overflow-hidden z-10">
+          {layout.panels.dancers.dock === 'bottom' && visiblePanels.dancers && (
+            <div className="flex-1 min-w-0 h-full">
+              {renderDancersContent()}
+            </div>
+          )}
+          {layout.panels.formations.dock === 'bottom' && visiblePanels.formations && (
+            <div className="flex-1 min-w-0 h-full">
+              {renderFormationsContent()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 6. LÍNEA DE TIEMPO ACOPLADA EN LA PARTE INFERIOR (POR DEFECTO) */}
+      {viewMode === 'choreographer' && layout.panels.timeline.dock === 'bottom' && visiblePanels.timeline && (
         <>
-          {/* Splitter horizontal para redimensionar la altura del timeline */}
           <div
             onPointerDown={startResizeTimeline}
             className="h-1.5 hover:h-2 bg-slate-800 hover:bg-violet-500 cursor-row-resize transition-all z-30 shrink-0"
             title="Arrastra verticalmente para cambiar la altura de la pista de música"
           />
-
           <footer 
+            style={{ height: `${timelineHeight}px` }}
             onPointerMove={handlePointerMoveGlobal}
             onPointerUp={handlePointerUpGlobal}
-            className="shrink-0 flex flex-col bg-slate-900 border-t border-slate-800 z-10"
+            className="shrink-0 flex flex-col bg-slate-900 border-t border-slate-800 z-20"
           >
-            <AudioControls
-              isPlaying={isPlaying}
-              currentTimeMs={currentTimeMs}
-              durationMs={project.durationMs}
-              playbackRate={playbackRate}
-              isLoopPhrase={isLoopPhrase}
-              isMetronomeEnabled={isMetronomeEnabled}
-              isRecordCountsMode={isRecordCountsMode}
-              onTogglePlay={handleTogglePlay}
-              onStop={handleStop}
-              onChangeRate={(rate) => {
-                setPlaybackRate(rate);
-                const aud = globalAudioEngine.getAudioElement();
-                if (aud) aud.playbackRate = rate;
-              }}
-              onToggleLoop={() => setIsLoopPhrase((prev) => !prev)}
-              onToggleMetronome={() => setIsMetronomeEnabled((prev) => !prev)}
-              onToggleRecordCounts={() => setIsRecordCountsMode((prev) => !prev)}
-              onTapBeat={handleTapBeat}
-              onResetCountToOne={handleResetCountToOne}
-              onClearBeats={handleClearBeats}
-            />
-
-            <Timeline
-              durationMs={project.durationMs}
-              currentTimeMs={currentTimeMs}
-              beats={project.beats}
-              formations={project.formations}
-              peaks={peaks}
-              selectedFormationId={selectedFormationId}
-              collisionTimes={collisionTimes}
-              onSeek={(t) => handleSeek(t)}
-              onSelectFormation={(fid) => {
-                setSelectedFormationId(fid);
-                const f = project.formations.find((item) => item.id === fid);
-                if (f) handleSeek(f.startTimeMs);
-              }}
-              onUpdateFormationTiming={(fid, s, h, t) => {
-                handleUpdateFormation(fid, {
-                  startTimeMs: s,
-                  holdDurationMs: h,
-                  transitionDurationMs: t,
-                });
-              }}
-              onUpdateBeatTimestamp={(bid, t) => {
-                setProject((prev) => {
-                  const updated = prev.beats.map((b) =>
-                    b.id === bid ? { ...b, timestampMs: t } : b
-                  );
-                  return {
-                    ...prev,
-                    beats: updated.sort((a, b) => a.timestampMs - b.timestampMs),
-                  };
-                });
-              }}
-              onAddFormationAtTime={handleAddFormationAtTime}
-            />
+            {renderTimelineContent()}
           </footer>
         </>
       )}
 
-      {/* 4. MODAL SALA EN VIVO / QR */}
+      {/* 7. VENTANAS FLOTANTES (SI EL USUARIO ARRASTRÓ CUALQUIER SECCIÓN COMO FLOTANTE) */}
+      {viewMode === 'choreographer' && layout.panels.dancers.dock === 'floating' && visiblePanels.dancers && (
+        <FloatingPanel
+          title="Bailarines"
+          panelId="dancers"
+          defaultPosition={{ x: 100, y: 130, width: 340, height: 460 }}
+          onDock={(z) => handleQuickDock('dancers', z)}
+          onClose={() => handleQuickDock('dancers', 'left')}
+          onStartDragSnap={() => handleStartDragSnap('dancers')}
+        >
+          {renderDancersContent()}
+        </FloatingPanel>
+      )}
+
+      {viewMode === 'choreographer' && layout.panels.formations.dock === 'floating' && visiblePanels.formations && (
+        <FloatingPanel
+          title="Formaciones"
+          panelId="formations"
+          defaultPosition={{ x: 460, y: 130, width: 360, height: 460 }}
+          onDock={(z) => handleQuickDock('formations', z)}
+          onClose={() => handleQuickDock('formations', 'right')}
+          onStartDragSnap={() => handleStartDragSnap('formations')}
+        >
+          {renderFormationsContent()}
+        </FloatingPanel>
+      )}
+
+      {viewMode === 'choreographer' && layout.panels.timeline.dock === 'floating' && visiblePanels.timeline && (
+        <FloatingPanel
+          title="Línea de Tiempo y Audio"
+          panelId="timeline"
+          defaultPosition={{ x: 80, y: 380, width: 780, height: 280 }}
+          onDock={(z) => handleQuickDock('timeline', z)}
+          onClose={() => handleQuickDock('timeline', 'bottom')}
+          onStartDragSnap={() => handleStartDragSnap('timeline')}
+        >
+          {renderTimelineContent()}
+        </FloatingPanel>
+      )}
+
+      {/* 8. OVERLAY DE SNAP LAYOUTS ESTILO WINDOWS 11 */}
+      <SnapLayoutOverlay
+        isDragging={isDraggingSnap}
+        activePanelId={activeDragPanel}
+        hoveredZone={hoveredZone}
+        onHoverZone={setHoveredZone}
+        onDropZone={handleDropZone}
+      />
+
+      {/* 9. MODAL SALA EN VIVO / QR (CON IP WI-FI LAN CORREGIDA Y SOPORTE OFFLINE) */}
       <LiveRoomModal
         isOpen={isLiveModalOpen}
         onClose={() => setIsLiveModalOpen(false)}
@@ -968,7 +1404,108 @@ export const App: React.FC = () => {
           realtimeManager.setRoomId(newRoom);
         }}
       />
+
+      {/* 10. MODAL DE ATAJOS DE TECLADO */}
+      {showShortcutsHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in select-none">
+          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-5 text-slate-100 flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2 font-bold text-sm text-cyan-300">
+                <Keyboard className="w-4 h-4 text-cyan-400" />
+                <span>Atajos de Teclado Profesionales</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowShortcutsHelp(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Play / Pausa</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-cyan-300">Espacio o S</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Marcar Conteo 1 a 8 en vivo</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-cyan-300">Espacio (Grabando)</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Guardar Sesión (.choreo)</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-emerald-300">Ctrl + S</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Abrir Sesión (.choreo)</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-violet-300">Ctrl + O</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Nueva Sesión en blanco</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-slate-300">Ctrl + N</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Seleccionar todas las formaciones</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-slate-300">Ctrl + A</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Duplicar formación</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-slate-300">Ctrl + D</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Eliminar formación(es)</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-rose-300">Supr / Backspace</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-300">Moverse entre conteos</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-slate-300">← Flechas →</span>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-300">Zoom en Escenario y Timeline</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 font-mono text-cyan-300">Rueda del Ratón</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 11. MODAL DE GUÍA MODO ACADEMIA (OFFLINE) */}
+      {showOfflineHelp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in select-none">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-5 text-slate-100 flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2 font-bold text-sm text-cyan-300">
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                <span>Guía Modo Academia (100% Sin Internet)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOfflineHelp(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2.5 text-xs text-slate-300 leading-relaxed">
+              <p>
+                <strong>¿No hay conexión a internet en tu academia?</strong> No te preocupes: ChoreoSync Pro está diseñado para funcionar en red local independiente.
+              </p>
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                <p>
+                  <strong>Opción 1: Router Wi-Fi local sin internet:</strong> Enciende el router de la academia. Conecta la laptop y los teléfonos de los bailarines a esa red. Escanean el QR y se sincronizan al instante.
+                </p>
+                <p>
+                  <strong>Opción 2: Zona Wi-Fi móvil (Hotspot):</strong> Activa "Compartir Internet" o "Punto de Acceso Wi-Fi" desde cualquier celular (no gasta datos). Conecta la laptop a esa red y todos los bailarines se conectan al hotspot.
+                </p>
+                <p>
+                  <strong>Opción 3: Vercel Cloud:</strong> Cuando terminemos y creemos el repositorio en GitHub, con 1 clic en Vercel tendrás un enlace global permanente (ej. <code>choreosync.vercel.app</code>) para usar en cualquier lugar con datos móviles.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 export default App;
