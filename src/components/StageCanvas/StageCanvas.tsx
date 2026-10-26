@@ -30,6 +30,7 @@ interface StageCanvasProps {
   onSelectDancer: (dancerId: string | null) => void;
   onUpdateDancerPosition: (formationId: string, dancerId: string, normX: number, normY: number) => void;
   onUpdateDancerCurveOffset: (formationId: string, dancerId: string, cx: number, cy: number) => void;
+  onEndUpdateDancerPosition?: () => void;
   onCollisionChange?: (collisions: CollisionEvent[]) => void;
 }
 
@@ -45,6 +46,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
   onSelectDancer,
   onUpdateDancerPosition,
   onUpdateDancerCurveOffset,
+  onEndUpdateDancerPosition,
   onCollisionChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -335,8 +337,16 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
       const r = dancerRadius * scale;
 
       if (isSelected) {
-        ctx.shadowColor = isColliding ? '#ef4444' : dancer.color;
-        ctx.shadowBlur = 25 * Math.min(1.5, zoom);
+        // Halo de resplandor exterior vibrante estilo neón (como en la captura del usuario)
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(screenPos.x, screenPos.y, r + 4, 0, Math.PI * 2);
+        ctx.shadowColor = isColliding ? '#ef4444' : '#c084fc';
+        ctx.shadowBlur = 32 * Math.min(1.5, zoom);
+        ctx.strokeStyle = '#c084fc';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.restore();
       }
 
       if (isColliding) {
@@ -353,7 +363,8 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
       ctx.fillStyle = dancer.color;
       ctx.fill();
 
-      ctx.lineWidth = isSelected ? Math.max(2.5, 3.5 * Math.min(1.5, zoom)) : 1.5;
+      // Borde blanco nítido y grueso para el bailarín activo
+      ctx.lineWidth = isSelected ? Math.max(3.5, 4.5 * Math.min(1.5, zoom)) : 1.5;
       ctx.strokeStyle = isColliding ? '#ef4444' : isSelected ? '#ffffff' : '#0f172a';
       ctx.stroke();
 
@@ -375,8 +386,8 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
       ctx.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
       ctx.fillStyle = '#0f172a';
       ctx.fill();
-      ctx.strokeStyle = '#475569';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = isSelected ? '#ffffff' : '#475569';
+      ctx.lineWidth = isSelected ? 1.5 : 1;
       ctx.stroke();
 
       const levelInitial = pose.level ? pose.level[0].toUpperCase() : 'M';
@@ -384,11 +395,11 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
       ctx.font = `bold ${Math.round(badgeR * 1.1)}px system-ui, sans-serif`;
       ctx.fillText(levelInitial, badgeX, badgeY + 1);
 
-      // Nombre del bailarín
-      const nameFontSize = Math.max(10, Math.round(r * 0.62));
-      ctx.font = `600 ${nameFontSize}px system-ui, sans-serif`;
-      ctx.fillStyle = '#f1f5f9';
-      ctx.fillText(dancer.name, screenPos.x, screenPos.y + r + 14 * Math.min(1.4, zoom));
+      // Nombre del bailarín (Grande y destacado en blanco como en la captura)
+      const nameFontSize = isSelected ? Math.max(13, Math.round(r * 0.72)) : Math.max(10, Math.round(r * 0.58));
+      ctx.font = isSelected ? `bold ${nameFontSize}px system-ui, sans-serif` : `600 ${nameFontSize}px system-ui, sans-serif`;
+      ctx.fillStyle = isSelected ? '#ffffff' : '#94a3b8';
+      ctx.fillText(dancer.name, screenPos.x, screenPos.y + r + (isSelected ? 16 : 13) * Math.min(1.4, zoom));
 
       ctx.restore();
     });
@@ -447,6 +458,43 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
     // 1. Clic secundario o botón central o con Alt/Espacio = Paneo directo
     if (e.button === 1 || e.button === 2 || e.altKey) {
+      dragRef.current = {
+        type: 'pan',
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        initialPanX: pan.x,
+        initialPanY: pan.y,
+      };
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    if (viewMode === 'dancer') {
+      // MODO BAILARÍN: 100% SOLO LECTURA (READ-ONLY)
+      // Tocar sobre un bailarín selecciona "¿Quién eres?" sin alterar la posición
+      const currentPoses = calculateDancersPose(formations, dancers, currentTimeMs);
+      let hitDancer: Dancer | null = null;
+
+      for (const dancer of dancers) {
+        const pose = currentPoses[dancer.id];
+        if (!pose) continue;
+        const s = toScreenCoords(pose.x, pose.y, rect, isMirror);
+        if (Math.hypot(s.x - px, s.y - py) <= dancerRadius * 1.5 + 8) {
+          hitDancer = dancer;
+          break;
+        }
+      }
+
+      if (hitDancer) {
+        onSelectDancer(hitDancer.id);
+        try {
+          localStorage.setItem('choreosync_my_dancer_id', hitDancer.id);
+        } catch {}
+        return;
+      }
+
+      // Si tocó fondo vacío en móvil: permitir Paneo de la vista
       dragRef.current = {
         type: 'pan',
         pointerId: e.pointerId,
@@ -573,11 +621,15 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (dragRef.current) {
+      const wasDancerDrag = dragRef.current.type === 'dancer' || dragRef.current.type === 'curve_control';
       const canvas = canvasRef.current;
       if (canvas && canvas.hasPointerCapture(e.pointerId)) {
         canvas.releasePointerCapture(e.pointerId);
       }
       dragRef.current = null;
+      if (wasDancerDrag) {
+        onEndUpdateDancerPosition?.();
+      }
     }
   };
 

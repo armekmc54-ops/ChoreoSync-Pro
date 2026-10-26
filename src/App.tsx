@@ -42,6 +42,7 @@ import { FormationsPanel } from './components/ChoreographerStudio/FormationsPane
 import { SnapLayoutOverlay } from './components/ChoreographerStudio/SnapLayoutOverlay';
 import { FloatingPanel } from './components/ChoreographerStudio/FloatingPanel';
 import { DancerView } from './components/DancerView/DancerView';
+import { MobileDancerScreen } from './components/DancerView/MobileDancerScreen';
 import { LiveRoomModal } from './components/RealtimeRoom/LiveRoomModal';
 import { 
   Compass, 
@@ -309,6 +310,22 @@ export const App: React.FC = () => {
     return acc;
   }, null);
 
+  // Transmisión en vivo instantánea hacia todos los celulares de los bailarines
+  const broadcastFullState = useCallback((projToBroadcast?: ChoreoProject) => {
+    const p = projToBroadcast || projectRef.current;
+    realtimeManager.broadcast({
+      type: 'FULL_STATE',
+      roomId,
+      senderId: realtimeManager.senderId,
+      timestamp: Date.now(),
+      currentTimeMs: currentTimeMsRef.current,
+      isPlaying: isPlayingRef.current,
+      playbackRate: playbackRateRef.current,
+      project: p,
+      activeFormationId: selectedFormationId,
+    });
+  }, [roomId, selectedFormationId]);
+
   // Función seek de tiempo precisa
   const handleSeek = useCallback(
     (timeMs: number, broadcast = true) => {
@@ -437,8 +454,10 @@ export const App: React.FC = () => {
     };
 
     const updated = [...beats, newBeat].sort((a, b) => a.timestampMs - b.timestampMs);
-    setProject((prev) => ({ ...prev, beats: updated }));
-  }, []);
+    const newProj = { ...projectRef.current, beats: updated };
+    setProject(newProj);
+    broadcastFullState(newProj);
+  }, [broadcastFullState]);
 
   const handleResetCountToOne = () => {
     animTimeRef.current.resetNextCount = true;
@@ -446,7 +465,9 @@ export const App: React.FC = () => {
 
   const handleClearBeats = () => {
     if (window.confirm('¿Deseas borrar todos los conteos marcados?')) {
-      setProject((prev) => ({ ...prev, beats: [] }));
+      const newProj = { ...projectRef.current, beats: [] };
+      setProject(newProj);
+      broadcastFullState(newProj);
     }
   };
 
@@ -542,19 +563,25 @@ export const App: React.FC = () => {
       },
     }));
 
-    setProject((prev) => ({
-      ...prev,
-      dancers: [...prev.dancers, newDancer],
+    const newProj = {
+      ...project,
+      dancers: [...project.dancers, newDancer],
       formations: updatedFormations,
-    }));
+    };
+    setProject(newProj);
     setSelectedDancerId(newDancer.id);
+    broadcastFullState(newProj);
   };
 
   const handleUpdateDancer = (dancerId: string, updates: Partial<Dancer>) => {
-    setProject((prev) => ({
-      ...prev,
-      dancers: prev.dancers.map((d) => (d.id === dancerId ? { ...d, ...updates } : d)),
-    }));
+    setProject((prev) => {
+      const newProj = {
+        ...prev,
+        dancers: prev.dancers.map((d) => (d.id === dancerId ? { ...d, ...updates } : d)),
+      };
+      broadcastFullState(newProj);
+      return newProj;
+    });
   };
 
   const handleDeleteDancer = (dancerId: string) => {
@@ -565,11 +592,15 @@ export const App: React.FC = () => {
       return { ...f, positions: pos };
     });
 
-    setProject((prev) => ({
-      ...prev,
-      dancers: prev.dancers.filter((d) => d.id !== dancerId),
-      formations: updatedFormations,
-    }));
+    setProject((prev) => {
+      const newProj = {
+        ...prev,
+        dancers: prev.dancers.filter((d) => d.id !== dancerId),
+        formations: updatedFormations,
+      };
+      broadcastFullState(newProj);
+      return newProj;
+    });
 
     if (selectedDancerId === dancerId) {
       setSelectedDancerId(project.dancers[0]?.id || null);
@@ -605,34 +636,42 @@ export const App: React.FC = () => {
       (a, b) => a.startTimeMs - b.startTimeMs
     );
 
-    setProject((prev) => ({
-      ...prev,
+    const newProj = {
+      ...project,
       formations: updated,
-    }));
+    };
+    setProject(newProj);
     setSelectedFormationId(newFormation.id);
     setSelectedFormationIds([newFormation.id]);
+    broadcastFullState(newProj);
   };
 
   const handleUpdateFormation = (formationId: string, updates: Partial<Formation>) => {
-    setProject((prev) => ({
-      ...prev,
-      formations: prev.formations.map((f) =>
-        f.id === formationId ? { ...f, ...updates } : f
-      ),
-    }));
+    setProject((prev) => {
+      const newProj = {
+        ...prev,
+        formations: prev.formations.map((f) =>
+          f.id === formationId ? { ...f, ...updates } : f
+        ),
+      };
+      broadcastFullState(newProj);
+      return newProj;
+    });
   };
 
   const handleDeleteFormation = (formationId: string) => {
     if (project.formations.length <= 1) return;
     const updated = project.formations.filter((f) => f.id !== formationId);
-    setProject((prev) => ({
-      ...prev,
+    const newProj = {
+      ...project,
       formations: updated,
-    }));
+    };
+    setProject(newProj);
     if (selectedFormationId === formationId) {
       setSelectedFormationId(updated[0].id);
       setSelectedFormationIds([updated[0].id]);
     }
+    broadcastFullState(newProj);
   };
 
   const handleDeleteFormations = (formationIds: string[]) => {
@@ -641,12 +680,14 @@ export const App: React.FC = () => {
       return;
     }
     const updated = project.formations.filter((f) => !formationIds.includes(f.id));
-    setProject((prev) => ({
-      ...prev,
+    const newProj = {
+      ...project,
       formations: updated,
-    }));
+    };
+    setProject(newProj);
     setSelectedFormationId(updated[0].id);
     setSelectedFormationIds([updated[0].id]);
+    broadcastFullState(newProj);
   };
 
   const handleDuplicateFormation = (fid?: string) => {
@@ -664,19 +705,22 @@ export const App: React.FC = () => {
     };
 
     const updated = [...project.formations, duplicated].sort((a, b) => a.startTimeMs - b.startTimeMs);
-    setProject((prev) => ({
-      ...prev,
+    const newProj = {
+      ...project,
       formations: updated,
-    }));
+    };
+    setProject(newProj);
     setSelectedFormationId(duplicated.id);
     setSelectedFormationIds([duplicated.id]);
+    broadcastFullState(newProj);
   };
 
   const handleSelectAllFormations = () => {
     setSelectedFormationIds(project.formations.map((f) => f.id));
   };
 
-  // Posicionamiento de bailarines en el canvas
+  // Posicionamiento de bailarines en el canvas en tiempo real
+  const lastDancerPosBroadcast = useRef<number>(0);
   const handleUpdateDancerPosition = (
     formationId: string,
     dancerId: string,
@@ -696,13 +740,26 @@ export const App: React.FC = () => {
         },
       };
 
-      return {
+      const newProj = {
         ...prev,
         formations: prev.formations.map((f) =>
           f.id === formationId ? { ...f, positions: updatedPos } : f
         ),
       };
+
+      // Transmisión en vivo continua throttled a 50ms para 60 FPS ultra fluido en celulares
+      const now = performance.now();
+      if (now - lastDancerPosBroadcast.current > 50) {
+        lastDancerPosBroadcast.current = now;
+        broadcastFullState(newProj);
+      }
+
+      return newProj;
     });
+  };
+
+  const handleEndUpdateDancerPosition = () => {
+    broadcastFullState(projectRef.current);
   };
 
   const handleUpdateDancerCurveOffset = (
@@ -723,12 +780,15 @@ export const App: React.FC = () => {
         },
       };
 
-      return {
+      const newProj = {
         ...prev,
         formations: prev.formations.map((f) =>
           f.id === formationId ? { ...f, positions: updatedPos } : f
         ),
       };
+
+      broadcastFullState(newProj);
+      return newProj;
     });
   };
 
@@ -745,6 +805,7 @@ export const App: React.FC = () => {
       setSelectedFormationIds(blank.formations[0]?.id ? [blank.formations[0].id] : []);
       setSelectedDancerId(blank.dancers[0]?.id || null);
       handleSeek(0);
+      broadcastFullState(blank);
     }
   };
 
@@ -759,6 +820,7 @@ export const App: React.FC = () => {
       setSelectedFormationIds(loaded.project.formations[0]?.id ? [loaded.project.formations[0].id] : []);
       setSelectedDancerId(loaded.project.dancers[0]?.id || null);
       handleSeek(0);
+      broadcastFullState(loaded.project);
     } catch (err: any) {
       alert(err.message || 'Error abriendo archivo de sesión (.choreo).');
     }
@@ -871,6 +933,7 @@ export const App: React.FC = () => {
       setSelectedFormationIds([demo.formations[0].id]);
       setSelectedDancerId(demo.dancers[0].id);
       handleSeek(0);
+      broadcastFullState(demo);
     }
   };
 
@@ -1121,6 +1184,21 @@ export const App: React.FC = () => {
     </div>
   );
 
+  // VISTA MÓVIL AISLADA PARA LOS BAILARINES (100% SOLO LECTURA, SIN MENÚS NI CONTROLES DE EDICIÓN)
+  if (viewMode === 'dancer') {
+    return (
+      <MobileDancerScreen
+        project={project}
+        currentTimeMs={currentTimeMs}
+        selectedDancerId={selectedDancerId}
+        roomId={roomId}
+        isRealtimeConnected={realtimeManager.isWsConnected()}
+        onSelectDancer={setSelectedDancerId}
+        onSwitchToDirector={() => setViewMode('choreographer')}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 font-sans select-none">
       {/* 1. BARRA SUPERIOR DE APLICACIÓN ESTILO ADOBE AUDITION / PREMIERE (.choreo) */}
@@ -1264,23 +1342,10 @@ export const App: React.FC = () => {
               onSelectDancer={setSelectedDancerId}
               onUpdateDancerPosition={handleUpdateDancerPosition}
               onUpdateDancerCurveOffset={handleUpdateDancerCurveOffset}
+              onEndUpdateDancerPosition={handleEndUpdateDancerPosition}
               onCollisionChange={setActiveCollisions}
             />
           </div>
-
-          {/* Tarjeta de Simulador en Modo Bailarín (Mobile-First) */}
-          {viewMode === 'dancer' && (
-            <DancerView
-              dancers={project.dancers}
-              formations={project.formations}
-              beats={project.beats}
-              currentTimeMs={currentTimeMs}
-              selectedDancerId={selectedDancerId}
-              isMirror={isMirror}
-              onSelectDancer={setSelectedDancerId}
-              onToggleMirror={() => setIsMirror((prev) => !prev)}
-            />
-          )}
         </div>
 
         {/* PANEL LATERAL DERECHO */}
