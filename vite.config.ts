@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -7,6 +8,14 @@ function liveSyncPlugin(): Plugin {
     name: 'choreosync-live-ws',
     configureServer(server) {
       if (!server.httpServer) return;
+      server.middlewares.use('/api/live-hosts', (_req, res) => {
+        const interfaces = Object.entries(os.networkInterfaces());
+        const addresses = interfaces.flatMap(([name, entries]) =>
+          (entries ?? []).filter(({ family, internal }) => family === 'IPv4' && !internal)
+            .map(({ address }) => ({ name, address })));
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(addresses));
+      });
       const wss = new WebSocketServer({ noServer: true });
       const rooms = new Map<string, Set<WebSocket>>();
       const roomStates = new Map<string, any>();

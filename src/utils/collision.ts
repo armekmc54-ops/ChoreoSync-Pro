@@ -1,4 +1,4 @@
-import { Formation, Dancer, CollisionEvent } from '../types/choreo';
+import { Formation, Dancer, CollisionEvent, PlannedContact } from '../types/choreo';
 import { calculateDancersPose } from './interpolation';
 
 export const COLLISION_RADIUS = 0.058; // Radio umbral de distancia normalizada
@@ -21,7 +21,8 @@ export function getDistance(
 export function detectInstantCollisions(
   formations: Formation[],
   dancers: Dancer[],
-  timeMs: number
+  timeMs: number,
+  plannedContacts: PlannedContact[] = []
 ): CollisionEvent[] {
   const poses = calculateDancersPose(formations, dancers, timeMs);
   const collisions: CollisionEvent[] = [];
@@ -43,7 +44,11 @@ export function detectInstantCollisions(
       }
 
       const dist = getDistance(pA, pB);
-      if (dist < COLLISION_RADIUS) {
+      if (dist < COLLISION_RADIUS && !plannedContacts.some((contact) =>
+        timeMs >= contact.startMs && timeMs < contact.endMs &&
+        ((contact.dancerIdA === dA.id && contact.dancerIdB === dB.id) ||
+         (contact.dancerIdA === dB.id && contact.dancerIdB === dA.id))
+      )) {
         collisions.push({
           timeMs,
           dancerIdA: dA.id,
@@ -64,33 +69,29 @@ export function detectInstantCollisions(
  */
 export function scanProjectCollisions(
   formations: Formation[],
-  dancers: Dancer[]
+  dancers: Dancer[],
+  plannedContacts: PlannedContact[] = []
 ): { timeMs: number; dancerNames: string[] }[] {
   const collisionPoints: { timeMs: number; dancerNames: string[] }[] = [];
-  if (!formations || formations.length < 2) return collisionPoints;
-
-  for (let i = 0; i < formations.length - 1; i++) {
-    const f = formations[i];
-    if (f.transitionDurationMs <= 0) continue;
-
-    const transitionStart = f.startTimeMs + f.holdDurationMs;
-    const transitionEnd = transitionStart + f.transitionDurationMs;
-    const steps = 30; // 30 muestras por transición
-
-    for (let step = 0; step <= steps; step++) {
-      const t = transitionStart + (f.transitionDurationMs * step) / steps;
-      const colls = detectInstantCollisions(formations, dancers, t);
-      if (colls.length > 0) {
-        const names = Array.from(
-          new Set(colls.flatMap((c) => [c.nameA, c.nameB]))
-        );
-        collisionPoints.push({
-          timeMs: Math.round(t),
-          dancerNames: names,
-        });
-      }
+  const sampleTimes = new Set<number>();
+  for (const formation of formations) {
+    sampleTimes.add(formation.startTimeMs);
+    if (formation.transitionDurationMs <= 0) continue;
+    const transitionStart = formation.startTimeMs + formation.holdDurationMs;
+    for (let step = 0; step <= 30; step++) {
+      sampleTimes.add(Math.round(transitionStart + formation.transitionDurationMs * step / 30));
     }
   }
 
+  for (const contact of plannedContacts) sampleTimes.add(contact.endMs);
+
+  for (const timeMs of [...sampleTimes].sort((a, b) => a - b)) {
+    const collisions = detectInstantCollisions(formations, dancers, timeMs, plannedContacts);
+    if (collisions.length === 0) continue;
+    collisionPoints.push({
+      timeMs,
+      dancerNames: [...new Set(collisions.flatMap((event) => [event.nameA, event.nameB]))],
+    });
+  }
   return collisionPoints;
 }

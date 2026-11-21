@@ -7,6 +7,8 @@ export class AudioEngineCore {
   private gainNode: GainNode | null = null;
   private isSynthetic = true;
   private currentAudioBlob: Blob | null = null;
+  private loadVersion = 0;
+  private audioUrl: string | null = null;
   private currentAudioFileName = '';
 
   constructor() {
@@ -90,10 +92,13 @@ export class AudioEngineCore {
     peaks: number[];
     audioUrl: string;
   }> {
+    const version = ++this.loadVersion;
     const ctx = this.getContext();
     const arrayBuffer = await file.arrayBuffer();
     const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
 
+    if (version !== this.loadVersion) throw new DOMException('Carga de audio reemplazada', 'AbortError');
+    this.releaseAudio();
     const durationMs = Math.round(audioBuffer.duration * 1000);
     const peaks = this.extractWaveformPeaks(audioBuffer, 1200);
     const audioUrl = URL.createObjectURL(file);
@@ -102,11 +107,7 @@ export class AudioEngineCore {
     this.currentAudioBlob = file;
     this.currentAudioFileName = customName || (file instanceof File ? file.name : 'audio_cargado.mp3');
 
-    if (this.audioElement) {
-      this.audioElement.pause();
-      this.audioElement.src = '';
-    }
-
+    this.audioUrl = audioUrl;
     this.audioElement = new Audio(audioUrl);
     this.audioElement.preload = 'auto';
 
@@ -174,8 +175,23 @@ export class AudioEngineCore {
 
   public setSyntheticMode(synthetic: boolean) {
     this.isSynthetic = synthetic;
-    if (synthetic && this.audioElement) {
+    if (synthetic) {
+      this.loadVersion++;
+      this.releaseAudio();
+      this.currentAudioBlob = null;
+      this.currentAudioFileName = '';
+    }
+  }
+
+  private releaseAudio() {
+    if (this.audioElement) {
       this.audioElement.pause();
+      this.audioElement.removeAttribute('src');
+      this.audioElement = null;
+    }
+    if (this.audioUrl) {
+      URL.revokeObjectURL(this.audioUrl);
+      this.audioUrl = null;
     }
   }
 }

@@ -1,3 +1,5 @@
+import { drawScenery, type ScenicObject } from '../../utils/scenery';
+import type { PlannedContact } from '../../types/choreo';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { 
   Formation, 
@@ -33,6 +35,8 @@ interface StageCanvasProps {
   onUpdateDancerCurveOffset: (formationId: string, dancerId: string, cx: number, cy: number) => void;
   onUpdateDancerPathType?: (formationId: string, dancerId: string, pathType: TrajectoryPathType) => void;
   onEndUpdateDancerPosition?: () => void;
+  scenery?: ScenicObject[];
+  plannedContacts?: PlannedContact[];
   onCollisionChange?: (collisions: CollisionEvent[]) => void;
 }
 
@@ -50,6 +54,8 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
   onUpdateDancerCurveOffset,
   onUpdateDancerPathType,
   onEndUpdateDancerPosition,
+  scenery,
+  plannedContacts,
   onCollisionChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -197,16 +203,17 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     const dancerRadius = Math.max(13, Math.min(rect.w, rect.h) * 0.046);
 
     // 1. FONDO DEL ESCENARIO
-    ctx.fillStyle = '#0b1220';
+    ctx.fillStyle = '#201c29';
     ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    if (scenery?.length) drawScenery(ctx, rect, scenery, currentTimeMs, isMirror);
 
     // Borde exterior
-    ctx.strokeStyle = '#334155';
+    ctx.strokeStyle = '#635b70';
     ctx.lineWidth = Math.max(1.5, 2 * Math.min(1.5, zoom));
     ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
 
     // 2. CUADRÍCULA "#" (9 ZONAS ESCÉNICAS)
-    ctx.strokeStyle = '#475569';
+    ctx.strokeStyle = '#504759';
     ctx.lineWidth = Math.max(1.2, 1.8 * Math.min(1.5, zoom));
     ctx.setLineDash([]);
 
@@ -233,7 +240,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `500 ${labelFontSize}px system-ui, sans-serif`;
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.fillStyle = '#a69bb3';
 
     for (let r = 0; r < 3; r++) {
       for (let c = 0; c < 3; c++) {
@@ -257,18 +264,18 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     // 3. INDICADOR "FRENTE / PÚBLICO"
     const bannerFontSize = Math.max(11, Math.min(16, 12 * Math.sqrt(zoom)));
     ctx.font = `bold ${bannerFontSize}px system-ui, sans-serif`;
-    ctx.fillStyle = '#22d3ee';
+    ctx.fillStyle = '#d9f788';
     ctx.textAlign = 'center';
 
     if (isMirror) {
       ctx.fillText(
-        '▲ FRENTE / PÚBLICO (VISTA DESDE EL ESCENARIO) ▲',
+        'PÚBLICO · VISTA DEL BAILARÍN',
         rect.x + rect.w / 2,
         rect.y - 14 * Math.min(1.5, zoom)
       );
     } else {
       ctx.fillText(
-        '▼ FRENTE / PÚBLICO (VISTA DIRECCIÓN / AUDITORIO) ▼',
+        'PÚBLICO · VISTA DEL DIRECTOR',
         rect.x + rect.w / 2,
         rect.y + rect.h + 20 * Math.min(1.5, zoom)
       );
@@ -276,7 +283,7 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
 
     // 4. POSICIONES INTERPOLADAS Y COLISIONES
     const currentPoses = calculateDancersPose(formations, dancers, currentTimeMs);
-    const activeCollisions = detectInstantCollisions(formations, dancers, currentTimeMs);
+    const activeCollisions = detectInstantCollisions(formations, dancers, currentTimeMs, plannedContacts);
     if (onCollisionChange) {
       onCollisionChange(activeCollisions);
     }
@@ -437,6 +444,8 @@ export const StageCanvas: React.FC<StageCanvasProps> = ({
     showAllPaths,
     zoom,
     pan,
+    scenery,
+  plannedContacts,
     onCollisionChange,
   ]);
 

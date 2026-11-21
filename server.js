@@ -42,6 +42,14 @@ const MIME_TYPES = {
 const distDir = path.join(__dirname, 'dist');
 
 const server = http.createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/api/live-hosts') {
+    const addresses = Object.entries(os.networkInterfaces()).flatMap(([name, entries]) =>
+      (entries ?? []).filter(({ family, internal }) => family === 'IPv4' && !internal)
+        .map(({ address }) => ({ name, address })));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(addresses));
+    return;
+  }
   let filePath = path.join(distDir, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
   const ext = path.extname(filePath);
   let contentType = MIME_TYPES[ext] || 'application/octet-stream';

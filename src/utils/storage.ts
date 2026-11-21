@@ -1,3 +1,4 @@
+import { normalizeScenery } from './scenery';
 import { 
   ChoreoProject, 
   Dancer, 
@@ -24,11 +25,12 @@ export const DANCER_LEVELS: DancerLevel[] = ['piso', 'medio', 'arriba'];
 
 export function getDefaultWorkspaceLayout(): WorkspaceLayout {
   return {
+    version: 2,
     panels: {
-      dancers: { dock: 'left', order: 0, customWidth: 260 },
-      formations: { dock: 'left', order: 1, customWidth: 260 },
-      stage: { dock: 'top' },
-      timeline: { dock: 'bottom', customHeight: 200 },
+      dancers: { dock: 'left', order: 0 },
+      formations: { dock: 'left', order: 1 },
+      stage: { dock: 'center' },
+      timeline: { dock: 'bottom' },
     },
   };
 }
@@ -176,8 +178,15 @@ export function sanitizeProject(raw: any): ChoreoProject {
     durationMs: typeof raw.durationMs === 'number' && raw.durationMs > 0 ? raw.durationMs : fallback.durationMs,
     bpm: typeof raw.bpm === 'number' && raw.bpm > 0 ? raw.bpm : fallback.bpm,
     audioFileName: raw.audioFileName || fallback.audioFileName,
-    dancers: Array.isArray(raw.dancers) && raw.dancers.length > 0 ? raw.dancers : fallback.dancers,
-    formations: Array.isArray(raw.formations) && raw.formations.length > 0 ? raw.formations : fallback.formations,
+    scenery: normalizeScenery(raw.scenery),
+    plannedContacts: Array.isArray(raw.plannedContacts) ? raw.plannedContacts.filter((item: any) =>
+      item && typeof item.id === 'string' && typeof item.dancerIdA === 'string' &&
+      typeof item.dancerIdB === 'string' && item.dancerIdA !== item.dancerIdB &&
+      Number.isFinite(item.startMs) && Number.isFinite(item.endMs) &&
+      item.startMs >= 0 && item.endMs > item.startMs && typeof item.description === 'string'
+    ) : undefined,
+    dancers: Array.isArray(raw.dancers) ? raw.dancers : fallback.dancers,
+    formations: Array.isArray(raw.formations) ? raw.formations : fallback.formations,
     beats: Array.isArray(raw.beats) ? raw.beats : (fallback.beats || []),
   };
 }
@@ -224,6 +233,7 @@ export function loadSessionFromLocalStorage(): ChoreoSession | null {
       return {
         ...parsed,
         project: sanitizeProject(parsed.project),
+        layout: normalizeWorkspaceLayout(parsed.layout),
       };
     }
   } catch (err) {
@@ -252,13 +262,56 @@ export function exportSessionToFile(session: ChoreoSession, filename?: string): 
 /**
  * Importa archivos de sesión .choreo o .json
  */
+export function normalizeWorkspaceLayout(layout?: Partial<WorkspaceLayout>): WorkspaceLayout {
+  const defaults = getDefaultWorkspaceLayout();
+  const visibleDocks = ['left', 'center', 'right', 'top', 'bottom', 'floating'];
+  const positive = (value?: number) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+  for (const id of ['dancers', 'formations', 'stage', 'timeline'] as const) {
+    const panel = layout?.panels?.[id];
+    if (!panel || panel.dock !== 'hidden' && !visibleDocks.includes(panel.dock)) continue;
+    const floating = panel.floating;
+    defaults.panels[id] = {
+      dock: id === 'stage' && layout?.version !== 2 && panel.dock === 'top' ? 'center' : panel.dock,
+      previousDock: panel.previousDock && visibleDocks.includes(panel.previousDock)
+        ? panel.previousDock : undefined,
+      order: Number.isFinite(panel.order) ? panel.order : defaults.panels[id].order,
+      customWidth: layout?.version === 2 ? positive(panel.customWidth) : undefined,
+      customHeight: layout?.version === 2 ? positive(panel.customHeight) : undefined,
+      floating: floating && Number.isFinite(floating.x) && Number.isFinite(floating.y) &&
+        positive(floating.width) && positive(floating.height) ? floating : undefined,
+    };
+  }
+  return defaults;
+}
+
 export async function importSessionFromFile(file: File): Promise<ChoreoSession> {
   const text = await file.text();
   const parsed = JSON.parse(text);
+  const project = parsed?.project ?? parsed;
+  const isObject = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+
+  if (!isObject(project) || !Array.isArray(project.dancers) || !Array.isArray(project.formations) ||
+      !project.dancers.every((dancer) => isObject(dancer) && typeof dancer.id === 'string') ||
+      !project.formations.every((formation) => isObject(formation) &&
+        typeof formation.id === 'string' && Number.isFinite(formation.startTimeMs) &&
+        Number.isFinite(formation.holdDurationMs) && Number.isFinite(formation.transitionDurationMs) &&
+        isObject(formation.positions) && Object.values(formation.positions).every((position) =>
+          isObject(position) && Number.isFinite(position.x) && Number.isFinite(position.y)))) {
+    throw new Error('La sesión tiene formaciones o bailarines incompletos.');
+  }
+  const cleanProject = sanitizeProject(project);
+  cleanProject.formations = [...cleanProject.formations].sort((a, b) => a.startTimeMs - b.startTimeMs);
+  cleanProject.beats = cleanProject.beats
+    .filter((beat) => beat && Number.isFinite(beat.timestampMs) &&
+      Number.isInteger(beat.phraseIndex) && Number.isInteger(beat.countNumber) &&
+      beat.countNumber >= 1 && beat.countNumber <= 8)
+    .sort((a, b) => a.timestampMs - b.timestampMs);
+
 
   // Si es un archivo de sesión completo .choreo
   if (parsed.project && Array.isArray(parsed.project.formations)) {
-    return parsed as ChoreoSession;
+    return { ...parsed, project: cleanProject, layout: normalizeWorkspaceLayout(parsed.layout) } as ChoreoSession;
   }
 
   // Si es un archivo de proyecto exportado anteriormente
@@ -268,7 +321,7 @@ export async function importSessionFromFile(file: File): Promise<ChoreoSession> 
       name: parsed.name || file.name.replace(/\.[^/.]+$/, ''),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      project: parsed as ChoreoProject,
+      project: cleanProject,
       layout: getDefaultWorkspaceLayout(),
     };
   }

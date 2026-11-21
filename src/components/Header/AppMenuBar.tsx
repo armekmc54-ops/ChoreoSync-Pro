@@ -338,6 +338,13 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
           {activeMenu === 'help' && (
             <div className="absolute left-0 top-full mt-1 w-56 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl py-1 z-50 text-xs">
               <button
+                onClick={() => { onResetLayout(); setActiveMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-violet-600/30 hover:text-white transition"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Restaurar ventanas del proyecto</span>
+              </button>
+              <button
                 onClick={() => { onOpenShortcutsHelp(); setActiveMenu(null); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-violet-600/30 hover:text-white transition"
               >

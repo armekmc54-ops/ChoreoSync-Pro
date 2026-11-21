@@ -1,89 +1,38 @@
 import React from 'react';
-import { Formation, DockZone } from '../../types/choreo';
+import { Formation } from '../../types/choreo';
 import { 
   PlusCircle, 
   Trash2, 
   Copy, 
-  GripVertical, 
-  Columns, 
-  ArrowDownToLine, 
-  ExternalLink 
 } from 'lucide-react';
 
 interface FormationsPanelProps {
   formations: Formation[];
   selectedFormationId: string;
   selectedFormationIds?: string[];
-  currentDock?: DockZone;
   onSelectFormation: (formationId: string, isMulti?: boolean) => void;
   onAddFormation: () => void;
   onUpdateFormation: (formationId: string, updates: Partial<Formation>) => void;
   onDeleteFormation: (formationId: string) => void;
   onDeleteFormations?: (formationIds: string[]) => void;
   onDuplicateFormation?: (formationId: string) => void;
-  onStartDragSnap: (e: React.PointerEvent) => void;
-  onQuickDock?: (zone: DockZone) => void;
 }
 
 export const FormationsPanel: React.FC<FormationsPanelProps> = ({
   formations,
   selectedFormationId,
   selectedFormationIds = [],
-  currentDock = 'left',
   onSelectFormation,
   onAddFormation,
   onUpdateFormation,
   onDeleteFormation,
   onDeleteFormations,
   onDuplicateFormation,
-  onStartDragSnap,
-  onQuickDock,
 }) => {
   return (
-    <div className="flex flex-col h-full bg-slate-900/95 border border-slate-800 rounded-xl overflow-hidden shadow-lg select-none">
-      {/* BARRA SUPERIOR DE ARRASTRE CON LOS 6 PUNTOS (ESTILO AUDITION / WINDOWS SNAP) */}
-      <div 
-        onPointerDown={onStartDragSnap}
-        className="flex items-center justify-between px-3 py-2 bg-slate-950/80 border-b border-slate-800 cursor-grab active:cursor-grabbing hover:bg-slate-800/60 transition group"
-        title="Arrastra desde los 6 puntos para acoplar en cualquier zona (Izquierda, Derecha, Abajo, Arriba o Flotante)"
-      >
-        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-cyan-400">
-          <div className="p-1 rounded bg-slate-800 group-hover:bg-cyan-500/20 group-hover:text-cyan-300 transition">
-            <GripVertical className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-400" />
-          </div>
-          <span>Formaciones ({formations.length})</span>
-        </div>
-
-        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
-          {onQuickDock && (
-            <>
-              <button
-                type="button"
-                onClick={() => onQuickDock(currentDock === 'left' ? 'right' : 'left')}
-                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
-                title={currentDock === 'left' ? 'Mover a la DERECHA' : 'Mover a la IZQUIERDA'}
-              >
-                <Columns className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onQuickDock('bottom')}
-                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
-                title="Mover panel ABAJO"
-              >
-                <ArrowDownToLine className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onQuickDock('floating')}
-                className="p-1 rounded text-slate-400 hover:text-violet-300 hover:bg-slate-800 transition"
-                title="Convertir en ventana flotante"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </button>
-            </>
-          )}
-
+    <div className="flex flex-col h-full bg-slate-900/95 overflow-hidden select-none">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800 px-2 py-1 text-xs text-slate-300">
+        <span>{formations.length} formaciones</span>
           <button
             type="button"
             onClick={onAddFormation}
@@ -91,15 +40,15 @@ export const FormationsPanel: React.FC<FormationsPanelProps> = ({
             title="Añadir nueva formación en el tiempo actual"
           >
             <PlusCircle className="w-3 h-3" />
-            <span>+ Aquí</span>
+            <span>Aquí</span>
           </button>
-        </div>
       </div>
+
 
       {/* CABECERA DE COLUMNAS */}
       <div className="text-[10px] text-slate-500 px-3 py-1 border-b border-slate-800/60 flex justify-between bg-slate-950/40">
         <span>Nombre</span>
-        <span>Hold ms · Trans ms</span>
+        <span>Pausa · Traslado (ms)</span>
       </div>
 
       {/* LISTA DE FORMACIONES */}
@@ -134,7 +83,7 @@ export const FormationsPanel: React.FC<FormationsPanelProps> = ({
                     holdDurationMs: Math.max(0, Number(e.target.value) || 0),
                   })
                 }
-                className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[11px] text-center text-violet-300 outline-none"
+                className="w-11 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[11px] text-center text-violet-300 outline-none"
                 title="Duración Hold (estático) en ms"
               />
 
@@ -148,7 +97,7 @@ export const FormationsPanel: React.FC<FormationsPanelProps> = ({
                     transitionDurationMs: Math.max(0, Number(e.target.value) || 0),
                   })
                 }
-                className="w-14 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[11px] text-center text-cyan-300 outline-none"
+                className="w-11 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[11px] text-center text-cyan-300 outline-none"
                 title="Duración Transición (desplazamiento) en ms"
               />
 

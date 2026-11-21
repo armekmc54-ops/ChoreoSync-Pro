@@ -1,3 +1,5 @@
+import type { ScenicObject } from '../utils/scenery';
+
 export type DancerLevel = 'piso' | 'medio' | 'arriba';
 
 export interface Dancer {
@@ -45,6 +47,15 @@ export interface Formation {
   positions: Record<string, DancerPosition>;
 }
 
+export interface PlannedContact {
+  id: string;
+  dancerIdA: string;
+  dancerIdB: string;
+  startMs: number;
+  endMs: number;
+  description: string;
+}
+
 export interface ChoreoProject {
   version: string;
   name: string;
@@ -54,11 +65,13 @@ export interface ChoreoProject {
   formations: Formation[];
   beats: Beat[];
   audioFileName?: string;
+  plannedContacts?: PlannedContact[];
+  scenery?: ScenicObject[];
 }
 
 // Modelos de Espacio de Trabajo Modular (Adobe Audition / Windows Snap)
 export type PanelId = 'dancers' | 'formations' | 'stage' | 'timeline';
-export type DockZone = 'left' | 'right' | 'bottom' | 'top' | 'floating' | 'hidden';
+export type DockZone = 'left' | 'center' | 'right' | 'bottom' | 'top' | 'floating' | 'hidden';
 
 export interface FloatingWindowConfig {
   x: number;
@@ -70,6 +83,7 @@ export interface FloatingWindowConfig {
 
 export interface PanelConfig {
   dock: DockZone;
+  previousDock?: Exclude<DockZone, 'hidden'>;
   floating?: FloatingWindowConfig;
   isCollapsed?: boolean;
   order?: number;
@@ -78,6 +92,7 @@ export interface PanelConfig {
 }
 
 export interface WorkspaceLayout {
+  version?: 2;
   panels: Record<PanelId, PanelConfig>;
 }
 

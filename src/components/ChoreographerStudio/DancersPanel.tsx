@@ -3,91 +3,39 @@ import { Dancer, Formation, DancerLevel } from '../../types/choreo';
 import { 
   UserPlus, 
   Trash2, 
-  GripVertical, 
-  Columns, 
-  ArrowDownToLine, 
   Maximize2, 
   Minus, 
   ChevronDown, 
   ChevronRight,
-  ExternalLink
 } from 'lucide-react';
-import { DockZone } from '../../types/choreo';
 
 interface DancersPanelProps {
   dancers: Dancer[];
   activeFormation?: Formation;
   selectedDancerId: string | null;
-  currentDock?: DockZone;
   onSelectDancer: (dancerId: string) => void;
   onAddDancer: () => void;
   onUpdateDancer: (dancerId: string, updates: Partial<Dancer>) => void;
   onDeleteDancer: (dancerId: string) => void;
   onUpdateFormation: (formationId: string, updates: Partial<Formation>) => void;
-  onStartDragSnap: (e: React.PointerEvent) => void;
-  onQuickDock?: (zone: DockZone) => void;
 }
 
 export const DancersPanel: React.FC<DancersPanelProps> = ({
   dancers,
   activeFormation,
   selectedDancerId,
-  currentDock = 'left',
   onSelectDancer,
   onAddDancer,
   onUpdateDancer,
   onDeleteDancer,
   onUpdateFormation,
-  onStartDragSnap,
-  onQuickDock,
 }) => {
   const [isOpen, setIsOpen] = useState(true);
 
   return (
-    <div className="flex flex-col h-full bg-slate-900/95 border border-slate-800 rounded-xl overflow-hidden shadow-lg select-none">
-      {/* BARRA SUPERIOR DE ARRASTRE CON LOS 6 PUNTOS (ESTILO AUDITION / WINDOWS SNAP) */}
-      <div 
-        onPointerDown={onStartDragSnap}
-        className="flex items-center justify-between px-3 py-2 bg-slate-950/80 border-b border-slate-800 cursor-grab active:cursor-grabbing hover:bg-slate-800/60 transition group"
-        title="Arrastra desde los 6 puntos para acoplar en cualquier zona (Izquierda, Derecha, Abajo, Arriba o Flotante)"
-      >
-        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-cyan-400">
-          <div className="p-1 rounded bg-slate-800 group-hover:bg-cyan-500/20 group-hover:text-cyan-300 transition">
-            <GripVertical className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-400" />
-          </div>
-          <span>Bailarines ({dancers.length})</span>
-        </div>
-
-        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
-          {onQuickDock && (
-            <>
-              <button
-                type="button"
-                onClick={() => onQuickDock(currentDock === 'left' ? 'right' : 'left')}
-                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
-                title={currentDock === 'left' ? 'Mover a la DERECHA' : 'Mover a la IZQUIERDA'}
-              >
-                <Columns className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onQuickDock('bottom')}
-                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
-                title="Mover panel ABAJO"
-              >
-                <ArrowDownToLine className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onQuickDock('floating')}
-                className="p-1 rounded text-slate-400 hover:text-violet-300 hover:bg-slate-800 transition"
-                title="Convertir en ventana flotante"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </button>
-            </>
-          )}
-
+    <div className="flex flex-col h-full bg-slate-900/95 overflow-hidden select-none">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800 px-2 py-1 text-xs text-slate-300">
+        <span>{dancers.length} bailarines</span>
           <button
             type="button"
             onClick={onAddDancer}
@@ -95,10 +43,10 @@ export const DancersPanel: React.FC<DancersPanelProps> = ({
             title="Añadir nuevo bailarín"
           >
             <UserPlus className="w-3 h-3" />
-            <span>+ Añadir</span>
+            <span>Añadir</span>
           </button>
-        </div>
       </div>
+
 
       {/* LISTA DE BAILARINES */}
       <div className="flex-1 min-h-0 overflow-y-auto p-2.5 flex flex-col gap-1.5">

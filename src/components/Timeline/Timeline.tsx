@@ -239,13 +239,13 @@ export const Timeline: React.FC<TimelineProps> = ({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, clientW, clientH);
 
-    ctx.fillStyle = '#020617';
+    ctx.fillStyle = '#14121a';
     ctx.fillRect(0, 0, clientW, clientH);
 
     // 0. MINIMAPA SUPERIOR
     const minimapH = zoom > 1.05 ? 13 : 0;
     if (minimapH > 0) {
-      ctx.fillStyle = '#0b1220';
+      ctx.fillStyle = '#1b1824';
       ctx.fillRect(0, 0, clientW, minimapH);
 
       if (peaks.length > 0) {
@@ -269,7 +269,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     // 1. REGLA DE TIEMPO
     const rulerY = minimapH;
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = '#211c2a';
     ctx.fillRect(0, rulerY, clientW, 18);
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1;
@@ -284,7 +284,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     ctx.font = '10px monospace';
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = '#aa9fb8';
 
     for (let s = startSec; s <= endSec; s += stepSec) {
       const x = timeToX(s * 1000, clientW);
@@ -305,10 +305,10 @@ export const Timeline: React.FC<TimelineProps> = ({
     const audioTrackY = rulerY + 43;
     const audioHeight = 21;
 
-    ctx.fillStyle = 'rgba(30, 41, 59, 0.4)';
+    ctx.fillStyle = 'rgba(60, 53, 72, 0.4)';
     ctx.fillRect(0, rulerY + 20, clientW, 46);
 
-    ctx.fillStyle = '#475569';
+    ctx.fillStyle = '#aa9fb8';
     ctx.font = '9px system-ui';
     ctx.fillText('AUDIO', 4, rulerY + 30);
 
@@ -337,10 +337,10 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     // 3. PISTA 2: CONTEOS 1 AL 8 (Y: rulerY + 68 a rulerY + 104)
     const beatsY = rulerY + 68;
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.fillStyle = 'rgba(38, 31, 51, 0.65)';
     ctx.fillRect(0, beatsY, clientW, 36);
 
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = '#aa9fb8';
     ctx.font = '9px system-ui';
     ctx.fillText('CONTEOS 1-8', 4, beatsY + 10);
 
@@ -366,7 +366,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
     // 4. PISTA 3: FORMACIONES (HOLD - POSES FIJAS) (Y: rulerY + 106 a rulerY + 144)
     const formTrackY = rulerY + 106;
-    ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
+    ctx.fillStyle = 'rgba(25, 20, 34, 0.9)';
     ctx.fillRect(0, formTrackY, clientW, 38);
 
     ctx.fillStyle = '#a78bfa';
@@ -513,7 +513,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       ctx.fillStyle = '#f59e0b';
       ctx.fillRect(xA - 8, rulerY, 16, 14);
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = '#211c2a';
       ctx.font = 'bold 9px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('A', xA, rulerY + 10);
@@ -526,7 +526,7 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       ctx.fillStyle = '#f59e0b';
       ctx.fillRect(xB - 8, rulerY, 16, 14);
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = '#211c2a';
       ctx.fillText('B', xB, rulerY + 10);
     }
 

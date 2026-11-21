@@ -1,3 +1,8 @@
+import { FormationLibrary } from './components/ChoreographerStudio/FormationLibrary';
+import { SceneryEditor } from './components/ChoreographerStudio/SceneryEditor';
+import { distributePreset, type FormationPreset } from './utils/formationPresets';
+import { PlannedContacts } from './components/ChoreographerStudio/PlannedContacts';
+import { readStudioBrand, getAccentText } from './components/Header/StudioBrandSettings';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ChoreoProject, 
@@ -9,7 +14,7 @@ import {
   SpeedRate, 
   CollisionEvent,
   PanelId,
-  DockZone,
+  PanelConfig,
   WorkspaceLayout,
   ChoreoSession,
   LoopRange,
@@ -48,8 +53,7 @@ import { Timeline } from './components/Timeline/Timeline';
 import { AudioControls } from './components/AudioEngine/AudioControls';
 import { DancersPanel } from './components/ChoreographerStudio/DancersPanel';
 import { FormationsPanel } from './components/ChoreographerStudio/FormationsPanel';
-import { SnapLayoutOverlay } from './components/ChoreographerStudio/SnapLayoutOverlay';
-import { FloatingPanel } from './components/ChoreographerStudio/FloatingPanel';
+import { WorkspacePanels } from './components/ChoreographerStudio/WorkspacePanels';
 import { DancerView } from './components/DancerView/DancerView';
 import { MobileDancerScreen } from './components/DancerView/MobileDancerScreen';
 import { LiveRoomModal } from './components/RealtimeRoom/LiveRoomModal';
@@ -57,9 +61,6 @@ import {
   Compass, 
   GitCommit, 
   AlertTriangle, 
-  GripVertical, 
-  ArrowUpDown, 
-  ExternalLink, 
   HelpCircle, 
   X, 
   Keyboard, 
@@ -71,6 +72,8 @@ import {
 } from 'lucide-react';
 
 export const App: React.FC = () => {
+  const [showScenery, setShowScenery] = useState(true);
+  const [studioBrand, setStudioBrand] = useState(readStudioBrand);
   // Inicialización de proyecto y sesión desde localStorage o demo
   const [project, setProject] = useState<ChoreoProject>(() => {
     const savedSession = loadSessionFromLocalStorage();
@@ -92,12 +95,12 @@ export const App: React.FC = () => {
     return saved?.layout || getDefaultWorkspaceLayout();
   });
 
-  const [visiblePanels, setVisiblePanels] = useState<Record<PanelId, boolean>>({
-    dancers: true,
-    formations: true,
-    stage: true,
-    timeline: true,
-  });
+  const visiblePanels = {
+    dancers: layout.panels.dancers.dock !== 'hidden',
+    formations: layout.panels.formations.dock !== 'hidden',
+    stage: layout.panels.stage.dock !== 'hidden',
+    timeline: layout.panels.timeline.dock !== 'hidden',
+  };
 
   // Pila de Historial para Deshacer / Rehacer (Undo / Redo - Ctrl+Z / Ctrl+Y)
   const [historyPast, setHistoryPast] = useState<ChoreoProject[]>([]);
@@ -109,11 +112,6 @@ export const App: React.FC = () => {
     setHistoryFuture([]);
   }, []);
 
-  // Estados de arrastre con Snap Layouts estilo Windows 11
-  const [isDraggingSnap, setIsDraggingSnap] = useState<boolean>(false);
-  const [activeDragPanel, setActiveDragPanel] = useState<PanelId | null>(null);
-  const [hoveredZone, setHoveredZone] = useState<DockZone | null>(null);
-
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -121,6 +119,9 @@ export const App: React.FC = () => {
     }
     return 'choreographer';
   });
+
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  useEffect(() => realtimeManager.onConnectionState(setIsRealtimeConnected), []);
 
   const [roomId, setRoomId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -162,73 +163,20 @@ export const App: React.FC = () => {
   const [showShortcutsHelp, setShowShortcutsHelp] = useState<boolean>(false);
   const [showOfflineHelp, setShowOfflineHelp] = useState<boolean>(false);
 
-  // Dimensiones de paneles resizables
-  const [sidebarWidth, setSidebarWidth] = useState<number>(270);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(270);
-  const [timelineHeight, setTimelineHeight] = useState<number>(200);
-
   // Manejador de archivo abierto directamente del sistema (File System Access API)
-  const fileHandleRef = useRef<any>(null);
+  const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
+  const fileWriteQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const [fileSaveStatus, setFileSaveStatus] = useState('');
 
-  // Redimensionamiento interactivo de paneles (Splitters limpios basados en window events)
-  const startResizeTimeline = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startH = timelineHeight;
-    const isTop = layout.panels.timeline.dock === 'top';
-
-    const onPointerMove = (moveEvt: PointerEvent) => {
-      const deltaY = moveEvt.clientY - startY;
-      const newHeight = isTop ? startH + deltaY : startH - deltaY;
-      setTimelineHeight(Math.max(120, Math.min(500, newHeight)));
-    };
-
-    const onPointerUp = () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-    };
-
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-  };
-
-  const startResizeSidebar = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = sidebarWidth;
-
-    const onPointerMove = (moveEvt: PointerEvent) => {
-      const deltaX = moveEvt.clientX - startX;
-      setSidebarWidth(Math.max(180, Math.min(500, startW + deltaX)));
-    };
-
-    const onPointerUp = () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-    };
-
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-  };
-
-  const startResizeRightSidebar = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = rightSidebarWidth;
-
-    const onPointerMove = (moveEvt: PointerEvent) => {
-      const deltaX = startX - moveEvt.clientX;
-      setRightSidebarWidth(Math.max(180, Math.min(500, startW + deltaX)));
-    };
-
-    const onPointerUp = () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-    };
-
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-  };
+  const writeSessionFile = useCallback((handle: FileSystemFileHandle, session: ChoreoSession) => {
+    const write = fileWriteQueue.current.catch(() => {}).then(async () => {
+      const stream = await handle.createWritable();
+      await stream.write(JSON.stringify(session, null, 2));
+      await stream.close();
+    });
+    fileWriteQueue.current = write;
+    return write;
+  }, []);
 
   // Datos derivados
   const [peaks, setPeaks] = useState<number[]>([]);
@@ -254,8 +202,7 @@ export const App: React.FC = () => {
   currentTimeMsRef.current = currentTimeMs;
   const projectRef = useRef(project);
   projectRef.current = project;
-  const isLoopPhraseRef = useRef(isLoopPhrase);
-  isLoopPhraseRef.current = isLoopPhrase;
+  const phraseLoopRef = useRef<{ startMs: number; endMs: number } | null>(null);
   const isMetronomeEnabledRef = useRef(isMetronomeEnabled);
   isMetronomeEnabledRef.current = isMetronomeEnabled;
   const playbackRateRef = useRef(playbackRate);
@@ -304,7 +251,6 @@ export const App: React.FC = () => {
       } else if (payload.type === 'FULL_STATE' && payload.project) {
         const cleanProject = sanitizeProject(payload.project);
         setProject(cleanProject);
-        saveProjectToLocalStorage(cleanProject);
         if (payload.currentTimeMs !== undefined) {
           setCurrentTimeMs(payload.currentTimeMs);
           currentTimeMsRef.current = payload.currentTimeMs;
@@ -366,7 +312,7 @@ export const App: React.FC = () => {
 
   // Recalcular colisiones globales y picos sintéticos al cambiar el proyecto
   useEffect(() => {
-    const colls = scanProjectCollisions(project.formations, project.dancers);
+    const colls = scanProjectCollisions(project.formations, project.dancers, project.plannedContacts);
     setCollisionTimes(colls.map((c) => c.timeMs));
 
     if (globalAudioEngine.isUsingSyntheticAudio()) {
@@ -376,10 +322,11 @@ export const App: React.FC = () => {
       );
       setPeaks(synPeaks);
     }
-  }, [project.formations, project.dancers, project.beats, project.durationMs]);
+  }, [project.formations, project.dancers, project.beats, project.durationMs, project.plannedContacts]);
 
   // Auto-guardado de sesión y proyecto en localStorage
   useEffect(() => {
+    if (viewMode !== 'choreographer') return;
     saveProjectToLocalStorage(project);
     const session: ChoreoSession = {
       version: '1.0.0',
@@ -390,7 +337,17 @@ export const App: React.FC = () => {
       layout,
     };
     saveSessionToLocalStorage(session);
-  }, [project, layout, sessionName]);
+    const handle = fileHandleRef.current;
+    if (!handle) return;
+    const timer = window.setTimeout(() => {
+      if (fileHandleRef.current !== handle) return;
+      writeSessionFile(handle, session).then(
+        () => { if (fileHandleRef.current === handle) setFileSaveStatus('Archivo al día'); },
+        () => { if (fileHandleRef.current === handle) setFileSaveStatus('Archivo pendiente · vuelve a guardar'); },
+      );
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [project, layout, sessionName, viewMode, writeSessionFile]);
 
   // Restauración automática persistente de archivo de audio desde IndexedDB
   useEffect(() => {
@@ -398,9 +355,8 @@ export const App: React.FC = () => {
       let isCancelled = false;
       (async () => {
         const blob = 
-          (await getAudioFromIndexedDB(`session_audio_${sessionName}`)) ||
-          (await getAudioFromIndexedDB(`audio_${project.audioFileName}`)) ||
-          (await getAudioFromIndexedDB('last_active_audio'));
+          (await getAudioFromIndexedDB(`session_audio_${sessionName}_${project.audioFileName}`)) ||
+          (await getAudioFromIndexedDB(`session_audio_${sessionName}`));
 
         if (blob && !isCancelled) {
           try {
@@ -416,7 +372,7 @@ export const App: React.FC = () => {
       })();
       return () => { isCancelled = true; };
     }
-  }, [project.audioFileName, sessionName]);
+  }, []);
 
   // Encontrar el conteo activo actual
   const currentBeat = (project.beats || []).reduce<Beat | null>((acc, b) => {
@@ -647,53 +603,29 @@ export const App: React.FC = () => {
         const delta = (now - animTimeRef.current.t0) * playbackRateRef.current;
         let nextTime = animTimeRef.current.c0 + delta;
 
-        // Soporte bucle de Punto A a Punto B (Loop A-B)
-        if (loopRangeRef.current.enabled && loopRangeRef.current.endMs > loopRangeRef.current.startMs) {
-          if (nextTime >= loopRangeRef.current.endMs) {
-            nextTime = loopRangeRef.current.startMs;
-            animTimeRef.current.t0 = now;
-            animTimeRef.current.c0 = loopRangeRef.current.startMs;
-            const aud = globalAudioEngine.getAudioElement();
-            if (aud && !globalAudioEngine.isUsingSyntheticAudio()) {
-              aud.currentTime = loopRangeRef.current.startMs / 1000;
-            }
+        const aud = viewModeRef.current === 'choreographer' && !globalAudioEngine.isUsingSyntheticAudio()
+          ? globalAudioEngine.getAudioElement()
+          : null;
+        if (aud) nextTime = aud.currentTime * 1000;
+
+        const curBeats = projectRef.current.beats;
+        const loop = loopRangeRef.current.enabled ? loopRangeRef.current : phraseLoopRef.current;
+        if (loop && loop.endMs > loop.startMs && nextTime >= loop.endMs) {
+          nextTime = loop.startMs;
+          animTimeRef.current.t0 = now;
+          animTimeRef.current.c0 = nextTime;
+          if (aud) {
+            aud.currentTime = nextTime / 1000;
+            if (aud.paused) void aud.play().catch(() => {});
           }
         }
 
-        // Soporte bucle por Ocho
-        const curBeats = projectRef.current.beats || [];
-        if (isLoopPhraseRef.current && curBeats.length > 0) {
-          const activeB = curBeats.reduce<Beat | null>((acc, b) => {
-            if (b.timestampMs <= nextTime) return b;
-            return acc;
-          }, null);
-
-          if (activeB) {
-            const phraseBeats = curBeats.filter(
-              (b) => b.phraseIndex === activeB.phraseIndex
-            );
-            const pStart = phraseBeats[0]?.timestampMs || 0;
-            const pEnd = (phraseBeats[phraseBeats.length - 1]?.timestampMs || 0) + 600;
-
-            if (nextTime >= pEnd && pEnd > pStart) {
-              nextTime = pStart;
-              animTimeRef.current.t0 = now;
-              animTimeRef.current.c0 = pStart;
-              const aud = globalAudioEngine.getAudioElement();
-              if (aud && !globalAudioEngine.isUsingSyntheticAudio()) {
-                aud.currentTime = pStart / 1000;
-              }
-            }
-          }
-        }
-
-        // Fin de canción
-        if (nextTime >= projectRef.current.durationMs) {
+        const finished = Boolean(aud?.ended) || nextTime >= projectRef.current.durationMs;
+        if (finished) {
           nextTime = projectRef.current.durationMs;
           setIsPlaying(false);
           isPlayingRef.current = false;
-          const aud = globalAudioEngine.getAudioElement();
-          if (aud) aud.pause();
+          aud?.pause();
         }
 
         // Metrónomo sintético con Web Audio API
@@ -710,7 +642,7 @@ export const App: React.FC = () => {
         currentTimeMsRef.current = nextTime;
 
         // Director sincroniza el pulso de tiempo cada 150ms hacia los celulares
-        if (viewModeRef.current === 'choreographer' && now - lastDirectorTickSync.current > 150) {
+        if (viewModeRef.current === 'choreographer' && (finished || now - lastDirectorTickSync.current > 150)) {
           lastDirectorTickSync.current = now;
           realtimeManager.broadcast({
             type: 'SYNC_TIME',
@@ -718,7 +650,7 @@ export const App: React.FC = () => {
             senderId: realtimeManager.senderId,
             timestamp: Date.now(),
             currentTimeMs: nextTime,
-            isPlaying: true,
+            isPlaying: !finished,
             playbackRate: playbackRateRef.current,
           });
         }
@@ -805,16 +737,18 @@ export const App: React.FC = () => {
   };
 
   // CRUD de Formaciones
-  const handleAddFormationAtTime = (timeMs: number) => {
-    pushHistory(projectRef.current);
-    const poses = calculateDancersPose(project.formations, project.dancers, timeMs);
+  const handleAddFormationAtTime = (timeMs: number, preset?: FormationPreset) => {
+    const previous = projectRef.current;
+    pushHistory(previous);
+    const poses = calculateDancersPose(previous.formations, previous.dancers, timeMs);
     const newPositions: Record<string, DancerPosition> = {};
 
-    project.dancers.forEach((d) => {
+    const points = preset ? distributePreset(preset, previous.dancers.length) : [];
+    previous.dancers.forEach((d, index) => {
       const p = poses[d.id] || { x: 0.5, y: 0.5, level: 'medio' as const };
       newPositions[d.id] = {
-        x: p.x,
-        y: p.y,
+        x: points[index]?.x ?? p.x,
+        y: points[index]?.y ?? p.y,
         level: p.level,
         curveOffset: { cx: 0, cy: 0 },
         notes: '',
@@ -823,19 +757,28 @@ export const App: React.FC = () => {
 
     const newFormation: Formation = {
       id: 'form_' + Date.now(),
-      name: `Formación ${project.formations.length + 1}`,
+      name: preset?.name ?? `Formación ${previous.formations.length + 1}`,
       startTimeMs: Math.round(timeMs),
       holdDurationMs: 2500,
       transitionDurationMs: 2000,
       positions: newPositions,
     };
 
-    const updated = [...project.formations, newFormation].sort(
-      (a, b) => a.startTimeMs - b.startTimeMs
-    );
+    const sameTime = preset ? previous.formations.find((item) => item.startTimeMs === newFormation.startTimeMs) : undefined;
+    if (sameTime) {
+      newFormation.id = sameTime.id;
+      newFormation.holdDurationMs = sameTime.holdDurationMs;
+      newFormation.transitionDurationMs = sameTime.transitionDurationMs;
+      for (const dancer of previous.dancers) {
+        const old = sameTime.positions[dancer.id];
+        if (old) newFormation.positions[dancer.id] = { ...old, x: newPositions[dancer.id].x, y: newPositions[dancer.id].y };
+      }
+    }
+    const updated = [...previous.formations.filter((item) => item.id !== sameTime?.id), newFormation]
+      .sort((a, b) => a.startTimeMs - b.startTimeMs);
 
     const newProj = {
-      ...project,
+      ...previous,
       formations: updated,
     };
     setProject(newProj);
@@ -1032,6 +975,12 @@ export const App: React.FC = () => {
       handleStop();
       pushHistory(projectRef.current);
       fileHandleRef.current = null;
+      setFileSaveStatus('');
+      globalAudioEngine.setSyntheticMode(true);
+      phraseLoopRef.current = null;
+      setIsLoopPhrase(false);
+      setLoopRange({ startMs: 0, endMs: 0, enabled: false });
+      setIsMetronomeEnabled(true);
       const blank = createBlankProject();
       const newLayout = getDefaultWorkspaceLayout();
       setProject(blank);
@@ -1047,10 +996,16 @@ export const App: React.FC = () => {
 
   const handleOpenSession = async (file: File) => {
     try {
+      const loaded = await importSessionFromFile(file);
       handleStop();
       pushHistory(projectRef.current);
       fileHandleRef.current = null;
-      const loaded = await importSessionFromFile(file);
+      setFileSaveStatus('');
+      globalAudioEngine.setSyntheticMode(true);
+      phraseLoopRef.current = null;
+      setIsLoopPhrase(false);
+      setLoopRange({ startMs: 0, endMs: 0, enabled: false });
+      setIsMetronomeEnabled(true);
       setProject(loaded.project);
       if (loaded.layout) setLayout(loaded.layout);
       if (loaded.name) setSessionName(loaded.name);
@@ -1067,18 +1022,18 @@ export const App: React.FC = () => {
           const fileName = loaded.project.audioFileName || 'audio_incrustado.mp3';
           const audioRes = await globalAudioEngine.loadAudioFile(blob, fileName);
           setPeaks(audioRes.peaks);
+          if (!loaded.project.audioFileName) {
+            setProject((previous) => ({ ...previous, audioFileName: fileName }));
+          }
           setIsMetronomeEnabled(false);
-          await saveAudioToIndexedDB(`session_audio_${loaded.name || sessionName}`, blob);
-          await saveAudioToIndexedDB(`audio_${fileName}`, blob);
+          await saveAudioToIndexedDB(`session_audio_${loaded.name || sessionName}_${fileName}`, blob);
         } catch (e) {
           console.warn('Error decodificando audio incrustado:', e);
         }
       } else if (loaded.project.audioFileName) {
         // Buscar si ya lo tenemos guardado en IndexedDB local
         const cachedBlob = 
-          (await getAudioFromIndexedDB(`session_audio_${loaded.name}`)) ||
-          (await getAudioFromIndexedDB(`audio_${loaded.project.audioFileName}`)) ||
-          (await getAudioFromIndexedDB('last_active_audio'));
+          await getAudioFromIndexedDB(`session_audio_${loaded.name}_${loaded.project.audioFileName}`);
 
         if (cachedBlob) {
           try {
@@ -1135,9 +1090,8 @@ export const App: React.FC = () => {
     // Si ya existe un handle de archivo vinculado (por haber guardado antes o abierto), escribir directamente (Ctrl+S instantáneo)
     if (fileHandleRef.current) {
       try {
-        const writable = await fileHandleRef.current.createWritable();
-        await writable.write(JSON.stringify(session, null, 2));
-        await writable.close();
+        await writeSessionFile(fileHandleRef.current, session);
+        setFileSaveStatus('Archivo al día');
         return;
       } catch (err) {
         console.warn('Error guardando en archivo existente, abriendo selector:', err);
@@ -1154,10 +1108,9 @@ export const App: React.FC = () => {
             accept: { 'application/json': ['.choreo', '.json'] },
           }],
         });
+        await writeSessionFile(handle, session);
         fileHandleRef.current = handle;
-        const writable = await handle.createWritable();
-        await writable.write(JSON.stringify(session, null, 2));
-        await writable.close();
+        setFileSaveStatus('Archivo al día');
         return;
       } catch (err: any) {
         if (err.name === 'AbortError') return;
@@ -1184,11 +1137,10 @@ export const App: React.FC = () => {
         const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
         const fileName = `${sessionName.replace(/[^\w\s-]/gi, '_')}.choreo`;
         const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+        await writeSessionFile(fileHandle, session);
         fileHandleRef.current = fileHandle;
-        const writable = await fileHandle.createWritable();
-        await writable.write(JSON.stringify(session, null, 2));
-        await writable.close();
-        alert(`¡Sesión guardada exitosamente en la carpeta de proyecto como "${fileName}"! A partir de ahora presionar Ctrl+S guardará automáticamente en este archivo sin ventanas de descarga.`);
+        setFileSaveStatus('Archivo al día');
+        alert(`¡Sesión guardada exitosamente en la carpeta de proyecto como "${fileName}"! Los cambios se guardarán automáticamente en este archivo mientras la sesión esté abierta.`);
         return;
       } catch (err: any) {
         if (err.name === 'AbortError') return;
@@ -1203,6 +1155,7 @@ export const App: React.FC = () => {
     if (newName && newName.trim()) {
       setSessionName(newName.trim());
       fileHandleRef.current = null;
+      setFileSaveStatus('');
       const session: ChoreoSession = {
         version: '1.0.0',
         name: newName.trim(),
@@ -1219,7 +1172,7 @@ export const App: React.FC = () => {
   // ATAJOS DE TECLADO GLOBALES
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+      if ((e.target as HTMLElement).closest('dialog, input, select, textarea')) {
         return;
       }
 
@@ -1368,60 +1321,23 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleResetLayout = () => {
-    setLayout(getDefaultWorkspaceLayout());
-    setVisiblePanels({
-      dancers: true,
-      formations: true,
-      stage: true,
-      timeline: true,
+  const restoreWindowsDialog = useRef<HTMLDialogElement>(null);
+  const handleResetLayout = () => restoreWindowsDialog.current?.showModal();
+
+  const handleTogglePanel = (panelId: PanelId) => {
+    setLayout((previous) => {
+      const panel = previous.panels[panelId];
+      const next: PanelConfig = panel.dock === 'hidden'
+        ? { ...panel, dock: panel.previousDock ?? getDefaultWorkspaceLayout().panels[panelId].dock }
+        : { ...panel, dock: 'hidden', previousDock: panel.dock };
+      return { ...previous, panels: { ...previous.panels, [panelId]: next } };
     });
   };
 
-  const handleTogglePanel = (panelId: PanelId) => {
-    setVisiblePanels((prev) => ({
-      ...prev,
-      [panelId]: !prev[panelId],
-    }));
-  };
-
-  // Manejo de Arrastre Snap Layouts estilo Windows 11
-  const handleStartDragSnap = (panelId: PanelId) => {
-    setActiveDragPanel(panelId);
-    setIsDraggingSnap(true);
-    setHoveredZone(null);
-  };
-
-  const handleDropZone = (zone: DockZone) => {
-    if (!activeDragPanel) {
-      setIsDraggingSnap(false);
-      return;
-    }
-    setLayout((prev) => ({
-      ...prev,
-      panels: {
-        ...prev.panels,
-        [activeDragPanel]: {
-          ...prev.panels[activeDragPanel],
-          dock: zone,
-        },
-      },
-    }));
-    setIsDraggingSnap(false);
-    setActiveDragPanel(null);
-    setHoveredZone(null);
-  };
-
-  const handleQuickDock = (panelId: PanelId, zone: DockZone) => {
-    setLayout((prev) => ({
-      ...prev,
-      panels: {
-        ...prev.panels,
-        [panelId]: {
-          ...prev.panels[panelId],
-          dock: zone,
-        },
-      },
+  const updatePanel = (panelId: PanelId, patch: Partial<PanelConfig>) => {
+    setLayout((previous) => ({
+      ...previous,
+      panels: { ...previous.panels, [panelId]: { ...previous.panels[panelId], ...patch } },
     }));
   };
 
@@ -1435,9 +1351,7 @@ export const App: React.FC = () => {
       setIsRecordCountsMode(true);
 
       // Guardar persistentemente en IndexedDB del navegador
-      await saveAudioToIndexedDB(`session_audio_${sessionName}`, file);
-      await saveAudioToIndexedDB(`audio_${file.name}`, file);
-      await saveAudioToIndexedDB('last_active_audio', file);
+      await saveAudioToIndexedDB(`session_audio_${sessionName}_${file.name}`, file);
 
       setProject((prev) => {
         const newProj = {
@@ -1453,25 +1367,21 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSyntheticAudio = () => {
-    handleStop();
-    globalAudioEngine.setSyntheticMode(true);
-    const durationMs = Math.max(16000, project.durationMs);
-    const beats = generateBeatsForDuration(durationMs, 120);
-    const synPeaks = globalAudioEngine.generateSyntheticPeaks(durationMs, beats);
-    setPeaks(synPeaks);
-    setIsMetronomeEnabled(true);
+  const handleTempoChange = (bpm: number) => {
+    if (!Number.isInteger(bpm) || bpm < 30 || bpm > 300) return;
+    const previous = projectRef.current;
+    if (previous.beats.length > 0 &&
+        !window.confirm('¿Reemplazar los conteos actuales por una cuadrícula de ' + bpm + ' BPM?')) return;
 
-    setProject((prev) => {
-      const newProj = {
-        ...prev,
-        durationMs,
-        bpm: 120,
-        beats,
-      };
-      broadcastFullState(newProj);
-      return newProj;
-    });
+    pushHistory(previous);
+    const updated = {
+      ...previous,
+      bpm,
+      beats: generateBeatsForDuration(previous.durationMs, bpm),
+    };
+    setIsMetronomeEnabled(true);
+    setProject(updated);
+    broadcastFullState(updated);
   };
 
   // Renderizadores de Paneles
@@ -1480,14 +1390,11 @@ export const App: React.FC = () => {
       dancers={project.dancers}
       activeFormation={project.formations.find((f) => f.id === selectedFormationId)}
       selectedDancerId={selectedDancerId}
-      currentDock={layout.panels.dancers.dock}
       onSelectDancer={setSelectedDancerId}
       onAddDancer={handleAddDancer}
       onUpdateDancer={handleUpdateDancer}
       onDeleteDancer={handleDeleteDancer}
       onUpdateFormation={handleUpdateFormation}
-      onStartDragSnap={() => handleStartDragSnap('dancers')}
-      onQuickDock={(zone) => handleQuickDock('dancers', zone)}
     />
   );
 
@@ -1496,7 +1403,6 @@ export const App: React.FC = () => {
       formations={project.formations}
       selectedFormationId={selectedFormationId}
       selectedFormationIds={selectedFormationIds}
-      currentDock={layout.panels.formations.dock}
       onSelectFormation={(fid, isMulti) => {
         setSelectedFormationId(fid);
         if (isMulti) {
@@ -1514,45 +1420,11 @@ export const App: React.FC = () => {
       onDeleteFormation={handleDeleteFormation}
       onDeleteFormations={handleDeleteFormations}
       onDuplicateFormation={handleDuplicateFormation}
-      onStartDragSnap={() => handleStartDragSnap('formations')}
-      onQuickDock={(zone) => handleQuickDock('formations', zone)}
     />
   );
 
   const renderTimelineContent = () => (
     <div className="flex flex-col w-full h-full bg-slate-900 border-slate-800">
-      {/* Barra de título con 6 puntos para arrastre snap */}
-      <div 
-        onPointerDown={() => handleStartDragSnap('timeline')}
-        className="flex items-center justify-between px-3 py-1 bg-slate-950/90 border-b border-slate-800 text-[11px] text-slate-400 cursor-grab active:cursor-grabbing hover:bg-slate-800/60 transition group select-none"
-        title="Arrastra desde los 6 puntos para mover la línea de tiempo arriba, abajo o flotante"
-      >
-        <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-violet-400">
-          <div className="p-0.5 rounded bg-slate-800 group-hover:bg-violet-500/20 group-hover:text-violet-300 transition">
-            <GripVertical className="w-3.5 h-3.5 text-slate-500 group-hover:text-violet-400" />
-          </div>
-          <span>Línea de Tiempo y Audio</span>
-        </div>
-        <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            onClick={() => handleQuickDock('timeline', layout.panels.timeline.dock === 'bottom' ? 'top' : 'bottom')}
-            className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
-            title={layout.panels.timeline.dock === 'bottom' ? 'Mover ARRIBA' : 'Mover ABAJO'}
-          >
-            <ArrowUpDown className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickDock('timeline', 'floating')}
-            className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition"
-            title="Convertir línea de tiempo en ventana flotante"
-          >
-            <ExternalLink className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-
       <AudioControls
         isPlaying={isPlaying}
         currentTimeMs={currentTimeMs}
@@ -1569,7 +1441,24 @@ export const App: React.FC = () => {
           const aud = globalAudioEngine.getAudioElement();
           if (aud) aud.playbackRate = rate;
         }}
-        onToggleLoop={() => setIsLoopPhrase((prev) => !prev)}
+        onToggleLoop={() => {
+          if (phraseLoopRef.current) {
+            phraseLoopRef.current = null;
+            setIsLoopPhrase(false);
+            return;
+          }
+          const beats = projectRef.current.beats;
+          const active = [...beats].reverse().find((beat) => beat.timestampMs <= currentTimeMsRef.current) || beats[0];
+          if (!active) return;
+          const first = beats.find((beat) => beat.phraseIndex === active.phraseIndex);
+          const following = beats.find((beat) => beat.phraseIndex > active.phraseIndex);
+          if (!first) return;
+          const endMs = following?.timestampMs ?? projectRef.current.durationMs;
+          if (endMs <= first.timestampMs) return;
+          phraseLoopRef.current = { startMs: first.timestampMs, endMs };
+          setLoopRange((range) => ({ ...range, enabled: false }));
+          setIsLoopPhrase(true);
+        }}
         onToggleMetronome={() => setIsMetronomeEnabled((prev) => !prev)}
         onToggleRecordCounts={() => setIsRecordCountsMode((prev) => !prev)}
         onTapBeat={handleTapBeat}
@@ -1581,7 +1470,7 @@ export const App: React.FC = () => {
         onClearLoopRange={handleClearLoopRange}
       />
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <Timeline
           durationMs={project.durationMs}
           currentTimeMs={currentTimeMs}
@@ -1638,113 +1527,14 @@ export const App: React.FC = () => {
   );
 
   // VISTA MÓVIL AISLADA PARA LOS BAILARINES (100% SOLO LECTURA, SIN MENÚS NI CONTROLES DE EDICIÓN)
-  if (viewMode === 'dancer') {
-    return (
-      <MobileDancerScreen
-        project={project}
-        currentTimeMs={currentTimeMs}
-        selectedDancerId={selectedDancerId}
-        roomId={roomId}
-        isRealtimeConnected={realtimeManager.isWsConnected()}
-        onSelectDancer={setSelectedDancerId}
-        onSwitchToDirector={() => setViewMode('choreographer')}
-      />
-    );
-  }
-
-  return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 font-sans select-none">
-      {/* 1. BARRA SUPERIOR DE APLICACIÓN ESTILO ADOBE AUDITION / PREMIERE (.choreo) */}
-      <AppMenuBar
-        sessionName={sessionName}
-        canUndo={historyPast.length > 0}
-        canRedo={historyFuture.length > 0}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onNewSession={handleNewSession}
-        onOpenSession={handleOpenSession}
-        onSaveSession={handleSaveSession}
-        onSaveSessionAs={handleSaveSessionAs}
-        onSaveToProjectFolder={handleSaveToProjectFolder}
-        onSaveSessionWithAudio={handleSaveSessionWithAudio}
-        onResetDemo={handleResetDemo}
-        onAddDancer={handleAddDancer}
-        onAddFormation={() => handleAddFormationAtTime(currentTimeMs)}
-        onDeleteSelected={() => handleDeleteFormations(selectedFormationIds)}
-        onDuplicateFormation={() => handleDuplicateFormation(selectedFormationId)}
-        onSelectAllFormations={handleSelectAllFormations}
-        onResetLayout={handleResetLayout}
-        onTogglePanel={handleTogglePanel}
-        visiblePanels={visiblePanels}
-        onOpenShortcutsHelp={() => setShowShortcutsHelp(true)}
-        onOpenOfflineHelp={() => setShowOfflineHelp(true)}
-      />
-
-      {/* 2. CABECERA PRINCIPAL CON LOGO, MODOS Y CONTROLES CLAVE */}
-      <Header
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        currentBeat={currentBeat}
-        audioFileName={project.audioFileName}
-        isSyntheticAudio={globalAudioEngine.isUsingSyntheticAudio()}
-        onExportJson={handleSaveSession}
-        onImportJson={handleOpenSession}
-        onUploadAudio={handleUploadAudio}
-        onResetDemo={handleResetDemo}
-        onSyntheticAudio={handleSyntheticAudio}
-        onOpenLiveModal={() => setIsLiveModalOpen(true)}
-        isRealtimeConnected={realtimeManager.isWsConnected()}
-      />
-
-      {/* 3. LÍNEA DE TIEMPO ACOPLADA EN LA PARTE SUPERIOR (SI EL USUARIO LA ARRASTRÓ AHÍ) */}
-      {viewMode === 'choreographer' && layout.panels.timeline.dock === 'top' && visiblePanels.timeline && (
-        <>
-          <div style={{ height: `${timelineHeight}px` }} className="shrink-0 flex flex-col z-20">
-            {renderTimelineContent()}
-          </div>
-          <div
-            onPointerDown={startResizeTimeline}
-            className="h-1.5 hover:h-2 bg-slate-800 hover:bg-violet-500 cursor-row-resize transition-all z-30 shrink-0"
-            title="Arrastra para cambiar la altura de la pista de música"
-          />
-        </>
-      )}
-
-      {/* 4. ÁREA CENTRAL (ESPACIO DE TRABAJO MODULAR ADOBE + SNAP LAYOUTS) */}
-      <main className="flex flex-1 min-h-0 overflow-hidden relative select-none">
-        {/* PANEL LATERAL IZQUIERDO */}
-        {viewMode === 'choreographer' && (layout.panels.dancers.dock === 'left' || layout.panels.formations.dock === 'left') && (
-          <>
-            <aside 
-              style={{ width: `${sidebarWidth}px` }} 
-              className="shrink-0 bg-slate-900 border-r border-slate-800 p-2.5 flex flex-col gap-2.5 overflow-hidden z-10"
-            >
-              {layout.panels.dancers.dock === 'left' && visiblePanels.dancers && (
-                <div className="flex-1 min-h-0">
-                  {renderDancersContent()}
-                </div>
-              )}
-              {layout.panels.formations.dock === 'left' && visiblePanels.formations && (
-                <div className="flex-1 min-h-0">
-                  {renderFormationsContent()}
-                </div>
-              )}
-            </aside>
-            <div
-              onPointerDown={startResizeSidebar}
-              className="w-1.5 hover:w-2 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-all z-20 shrink-0"
-              title="Arrastra para cambiar el ancho del panel izquierdo"
-            />
-          </>
-        )}
-
-        {/* LIENZO DEL ESCENARIO CENTRAL */}
-        <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden bg-slate-950 relative">
+  const renderStageContent = () => (
+        <div className="studio-stage min-w-0 flex flex-col h-full overflow-hidden bg-slate-950 relative">
           {/* Barra de herramientas sobre el escenario */}
-          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-slate-900 border-b border-slate-800 select-none z-10">
-            <div className="flex items-center gap-2">
+          <div className="studio-stage-tools flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-900 border-b border-slate-800 select-none z-10">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                aria-pressed={isMirror}
                 onClick={() => setIsMirror((prev) => !prev)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-semibold transition ${
                   isMirror
@@ -1759,6 +1549,7 @@ export const App: React.FC = () => {
 
               <button
                 type="button"
+                aria-pressed={showAllPaths}
                 onClick={() => setShowAllPaths((prev) => !prev)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-semibold transition ${
                   showAllPaths
@@ -1772,12 +1563,39 @@ export const App: React.FC = () => {
               </button>
             </div>
 
+            <div className="studio-stage-actions">
+              <FormationLibrary castSize={project.dancers.length} onApply={(preset) => {
+                const timeMs = Math.round(currentTimeMsRef.current);
+                if (projectRef.current.formations.some((item) => item.startTimeMs === timeMs) &&
+                    !window.confirm('¿Aplicar esta figura a la formación de este instante?')) return;
+                handleAddFormationAtTime(timeMs, preset);
+              }} />
+              <SceneryEditor objects={project.scenery ?? []} durationMs={project.durationMs}
+                timeMs={currentTimeMs} visible={showScenery} onVisibilityChange={setShowScenery}
+                onChange={(scenery) => {
+                  const previous = projectRef.current;
+                  pushHistory(previous);
+                  const updated = { ...previous, scenery };
+                  setProject(updated);
+                  broadcastFullState(updated);
+                }} />
+            </div>
+
+            <PlannedContacts dancers={project.dancers} contacts={project.plannedContacts ?? []}
+              timeMs={currentTimeMs} durationMs={project.durationMs} onChange={(plannedContacts) => {
+                const previous = projectRef.current;
+                pushHistory(previous);
+                const updated = { ...previous, plannedContacts };
+                setProject(updated);
+                broadcastFullState(updated);
+              }} />
+
             {/* ALERTA VISUAL DE COLISIONES EN CABECERA */}
             {activeCollisions.length > 0 && (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-500 text-rose-300 text-xs font-bold animate-bounce shadow-md">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-500 text-rose-300 text-xs font-semibold">
                 <AlertTriangle className="w-4 h-4 text-rose-400" />
                 <span>
-                  ⚠ COLISIÓN:{' '}
+                  Colisión:{' '}
                   {activeCollisions
                     .map((c) => `${c.nameA} × ${c.nameB}`)
                     .join(', ')}
@@ -1845,119 +1663,96 @@ export const App: React.FC = () => {
               onUpdateDancerCurveOffset={handleUpdateDancerCurveOffset}
               onUpdateDancerPathType={handleUpdateDancerPathType}
               onEndUpdateDancerPosition={handleEndUpdateDancerPosition}
+              scenery={showScenery ? project.scenery : undefined}
+              plannedContacts={project.plannedContacts}
               onCollisionChange={setActiveCollisions}
             />
           </div>
         </div>
+  );
 
-        {/* PANEL LATERAL DERECHO */}
-        {viewMode === 'choreographer' && (layout.panels.dancers.dock === 'right' || layout.panels.formations.dock === 'right') && (
-          <>
-            <div
-              onPointerDown={startResizeRightSidebar}
-              className="w-1.5 hover:w-2 bg-slate-800 hover:bg-cyan-500 cursor-col-resize transition-all z-20 shrink-0"
-              title="Arrastra para cambiar el ancho del panel derecho"
-            />
-            <aside 
-              style={{ width: `${rightSidebarWidth}px` }} 
-              className="shrink-0 bg-slate-900 border-l border-slate-800 p-2.5 flex flex-col gap-2.5 overflow-hidden z-10"
-            >
-              {layout.panels.dancers.dock === 'right' && visiblePanels.dancers && (
-                <div className="flex-1 min-h-0">
-                  {renderDancersContent()}
-                </div>
-              )}
-              {layout.panels.formations.dock === 'right' && visiblePanels.formations && (
-                <div className="flex-1 min-h-0">
-                  {renderFormationsContent()}
-                </div>
-              )}
-            </aside>
-          </>
-        )}
-      </main>
-
-      {/* 5. SECCIONES ACOPLADAS EN LA PARTE INFERIOR (SI SE ARRASTRARON ABAJO) */}
-      {viewMode === 'choreographer' && (layout.panels.dancers.dock === 'bottom' || layout.panels.formations.dock === 'bottom') && (
-        <div className="h-56 shrink-0 bg-slate-900 border-t border-slate-800 p-2.5 flex gap-2.5 overflow-hidden z-10">
-          {layout.panels.dancers.dock === 'bottom' && visiblePanels.dancers && (
-            <div className="flex-1 min-w-0 h-full">
-              {renderDancersContent()}
-            </div>
-          )}
-          {layout.panels.formations.dock === 'bottom' && visiblePanels.formations && (
-            <div className="flex-1 min-w-0 h-full">
-              {renderFormationsContent()}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 6. LÍNEA DE TIEMPO ACOPLADA EN LA PARTE INFERIOR (POR DEFECTO) */}
-      {viewMode === 'choreographer' && layout.panels.timeline.dock === 'bottom' && visiblePanels.timeline && (
-        <>
-          <div
-            onPointerDown={startResizeTimeline}
-            className="h-1.5 hover:h-2 bg-slate-800 hover:bg-violet-500 cursor-row-resize transition-all z-30 shrink-0"
-            title="Arrastra verticalmente para cambiar la altura de la pista de música"
-          />
-          <footer 
-            style={{ height: `${timelineHeight}px` }}
-            className="shrink-0 flex flex-col bg-slate-900 border-t border-slate-800 z-20"
-          >
-            {renderTimelineContent()}
-          </footer>
-        </>
-      )}
-
-      {/* 7. VENTANAS FLOTANTES (SI EL USUARIO ARRASTRÓ CUALQUIER SECCIÓN COMO FLOTANTE) */}
-      {viewMode === 'choreographer' && layout.panels.dancers.dock === 'floating' && visiblePanels.dancers && (
-        <FloatingPanel
-          title="Bailarines"
-          panelId="dancers"
-          defaultPosition={{ x: 100, y: 130, width: 340, height: 460 }}
-          onDock={(z) => handleQuickDock('dancers', z)}
-          onClose={() => handleQuickDock('dancers', 'left')}
-          onStartDragSnap={() => handleStartDragSnap('dancers')}
-        >
-          {renderDancersContent()}
-        </FloatingPanel>
-      )}
-
-      {viewMode === 'choreographer' && layout.panels.formations.dock === 'floating' && visiblePanels.formations && (
-        <FloatingPanel
-          title="Formaciones"
-          panelId="formations"
-          defaultPosition={{ x: 460, y: 130, width: 360, height: 460 }}
-          onDock={(z) => handleQuickDock('formations', z)}
-          onClose={() => handleQuickDock('formations', 'right')}
-          onStartDragSnap={() => handleStartDragSnap('formations')}
-        >
-          {renderFormationsContent()}
-        </FloatingPanel>
-      )}
-
-      {viewMode === 'choreographer' && layout.panels.timeline.dock === 'floating' && visiblePanels.timeline && (
-        <FloatingPanel
-          title="Línea de Tiempo y Audio"
-          panelId="timeline"
-          defaultPosition={{ x: 80, y: 380, width: 780, height: 280 }}
-          onDock={(z) => handleQuickDock('timeline', z)}
-          onClose={() => handleQuickDock('timeline', 'bottom')}
-          onStartDragSnap={() => handleStartDragSnap('timeline')}
-        >
-          {renderTimelineContent()}
-        </FloatingPanel>
-      )}
-
-      {/* 8. OVERLAY DE SNAP LAYOUTS ESTILO WINDOWS 11 */}
-      <SnapLayoutOverlay
-        isDragging={isDraggingSnap}
-        activePanelId={activeDragPanel}
-        hoveredZone={hoveredZone}
-        onHoverZone={setHoveredZone}
-        onDropZone={handleDropZone}
+  if (viewMode === 'dancer') {
+    return (
+      <MobileDancerScreen
+        project={project}
+        currentTimeMs={currentTimeMs}
+        selectedDancerId={selectedDancerId}
+        roomId={roomId}
+        isRealtimeConnected={isRealtimeConnected}
+        onSelectDancer={setSelectedDancerId}
+        onSwitchToDirector={new URLSearchParams(window.location.search).get('mode') === 'dancer'
+          ? undefined : () => setViewMode('choreographer')}
       />
+    );
+  }
+
+  return (
+    <div style={{ '--studio-accent': studioBrand.accent, '--studio-accent-text': getAccentText(studioBrand.accent) } as React.CSSProperties} className="studio-workspace flex flex-col h-dvh w-full bg-slate-950 font-sans select-none">
+      {/* 1. BARRA SUPERIOR DE APLICACIÓN ESTILO ADOBE AUDITION / PREMIERE (.choreo) */}
+      <AppMenuBar
+        sessionName={sessionName}
+        canUndo={historyPast.length > 0}
+        canRedo={historyFuture.length > 0}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onNewSession={handleNewSession}
+        onOpenSession={handleOpenSession}
+        onSaveSession={handleSaveSession}
+        onSaveSessionAs={handleSaveSessionAs}
+        onSaveToProjectFolder={handleSaveToProjectFolder}
+        onSaveSessionWithAudio={handleSaveSessionWithAudio}
+        onResetDemo={handleResetDemo}
+        onAddDancer={handleAddDancer}
+        onAddFormation={() => handleAddFormationAtTime(currentTimeMs)}
+        onDeleteSelected={() => handleDeleteFormations(selectedFormationIds)}
+        onDuplicateFormation={() => handleDuplicateFormation(selectedFormationId)}
+        onSelectAllFormations={handleSelectAllFormations}
+        onResetLayout={handleResetLayout}
+        onTogglePanel={handleTogglePanel}
+        visiblePanels={visiblePanels}
+        onOpenShortcutsHelp={() => setShowShortcutsHelp(true)}
+        onOpenOfflineHelp={() => setShowOfflineHelp(true)}
+      />
+
+      {/* 2. CABECERA PRINCIPAL CON LOGO, MODOS Y CONTROLES CLAVE */}
+      <Header
+        key={sessionName + ':' + project.bpm}
+        sessionName={sessionName}
+        currentBeat={currentBeat}
+        bpm={project.bpm}
+        brand={studioBrand}
+        onBrandChange={setStudioBrand}
+        fileSaveStatus={fileSaveStatus}
+        audioFileName={project.audioFileName}
+        isSyntheticAudio={globalAudioEngine.isUsingSyntheticAudio()}
+        onTempoChange={handleTempoChange}
+        onSave={handleSaveSession}
+        onUploadAudio={handleUploadAudio}
+        onPreviewDancer={() => setViewMode('dancer')}
+        onOpenLiveModal={() => setIsLiveModalOpen(true)}
+        isRealtimeConnected={isRealtimeConnected}
+      />
+
+      <WorkspacePanels layout={layout} onChange={updatePanel} contents={{
+        dancers: renderDancersContent(),
+        formations: renderFormationsContent(),
+        stage: renderStageContent(),
+        timeline: renderTimelineContent(),
+      }} />
+
+      <dialog ref={restoreWindowsDialog} className="studio-settings" aria-labelledby="restore-windows-title">
+        <form method="dialog">
+          <h2 id="restore-windows-title">Restaurar solo las ventanas del proyecto</h2>
+          <p>Se restablecerán la ubicación, el tamaño y la visibilidad de los paneles. La coreografía, la escenografía y el audio se conservarán.</p>
+          <footer>
+            <button type="submit" autoFocus>Cancelar</button>
+            <button type="button" onClick={() => {
+              setLayout(getDefaultWorkspaceLayout());
+              restoreWindowsDialog.current?.close();
+            }}>Restaurar ventanas</button>
+          </footer>
+        </form>
+      </dialog>
 
       {/* 9. MODAL SALA EN VIVO / QR (CON IP WI-FI LAN CORREGIDA Y SOPORTE OFFLINE) */}
       <LiveRoomModal

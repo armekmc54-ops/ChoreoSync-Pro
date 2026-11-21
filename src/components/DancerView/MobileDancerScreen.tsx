@@ -60,6 +60,10 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
   const nextFormation = project.formations[currentFormationIdx + 1];
 
   const currentPoses = calculateDancersPose(project.formations, project.dancers, currentTimeMs);
+  const supports = project.plannedContacts?.filter((item) =>
+    currentTimeMs >= item.startMs && currentTimeMs < item.endMs &&
+    (item.dancerIdA === currentDancer?.id || item.dancerIdB === currentDancer?.id)
+  );
   const myPose = currentDancer ? currentPoses[currentDancer.id] : null;
 
   // Encontrar el conteo activo actual
@@ -123,7 +127,7 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 select-none">
+    <div className="studio-dancer flex flex-col h-dvh w-full overflow-hidden bg-slate-950 text-slate-100 select-none">
       {/* 1. CABECERA DEDICADA PARA EL CELULAR DEL BAILARÍN */}
       <header className="shrink-0 flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800 z-30">
         <div className="flex items-center gap-2">
@@ -134,7 +138,7 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
             <div className="flex items-center gap-1.5">
               <span className="font-black text-sm tracking-tight text-white">ChoreoSync</span>
               <span className="text-[10px] px-1 py-0.2 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-mono font-bold">
-                EN VIVO
+                {isRealtimeConnected ? 'EN VIVO' : 'SIN CONEXIÓN'}
               </span>
             </div>
             <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono">
@@ -199,7 +203,9 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
           selectedDancerId={selectedDancerId}
           viewMode="dancer"
           isMirror={isMirror}
-          showAllPaths={true}
+          showAllPaths={false}
+          scenery={project.scenery}
+          plannedContacts={project.plannedContacts}
           onSelectDancer={handleSelectMyDancer}
           onUpdateDancerPosition={() => {}}
           onUpdateDancerCurveOffset={() => {}}
@@ -208,9 +214,9 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
 
       {/* 3. DASHBOARD INFERIOR DEL BAILARÍN (CONTEO GIGANTE E INSTRUCCIONES) */}
       <footer className="shrink-0 bg-slate-900 border-t border-slate-800 p-3 sm:p-4 flex flex-col gap-2.5 z-30 shadow-2xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="studio-dancer-summary flex flex-col justify-between gap-3">
           {/* Avatar del Bailarín e Instrucciones */}
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             {currentDancer && (
               <div
                 className="w-11 h-11 rounded-full flex items-center justify-center font-extrabold text-slate-950 text-base shadow-lg shadow-violet-500/20 shrink-0 border-2 border-white ring-4 ring-violet-500/30"
@@ -241,7 +247,7 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
               {instruction.targetText && (
                 <div className="flex items-center gap-1.5 text-xs text-violet-300 font-semibold mt-0.5">
                   <ArrowRight className="w-3.5 h-3.5 text-violet-400 shrink-0" />
-                  <span className="truncate">{instruction.targetText}</span>
+                  <span className="break-words">{instruction.targetText}</span>
                 </div>
               )}
             </div>
@@ -258,11 +264,19 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
           </div>
         </div>
 
+        {supports?.map((item) => (
+          <p key={item.id} className="rounded-md border border-amber-500/40 px-3 py-2 text-sm text-amber-200">
+            <strong>Apoyo con {project.dancers.find((dancer) => dancer.id ===
+              (item.dancerIdA === currentDancer?.id ? item.dancerIdB : item.dancerIdA))?.name || 'tu pareja'}.</strong>{' '}
+            {item.description}
+          </p>
+        ))}
+
         {/* Nota de Seguridad: Solo Lectura y Modo Director Opcional */}
         <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-800/80 pt-2">
           <div className="flex items-center gap-1 text-slate-400">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Modo Solo Lectura · Sincronizado en tiempo real</span>
+            <span>{isRealtimeConnected ? 'Solo lectura · Recibiendo la sala' : 'Solo lectura · Esperando conexión'}</span>
           </div>
 
           {onSwitchToDirector && (
