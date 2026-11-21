@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: choreosync-pro-live
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: CHOREO_DIRECTOR_KEY
+        generateValue: true

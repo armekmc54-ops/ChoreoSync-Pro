@@ -126,6 +126,20 @@ export const MobileDancerScreen: React.FC<MobileDancerScreenProps> = ({
     } catch {}
   };
 
+  if (roomId.startsWith('PILOT-') && !currentDancer) {
+    return (
+      <main className="grid min-h-dvh place-items-center bg-slate-950 p-6 text-center text-slate-100">
+        <div role="status" className="max-w-sm">
+          <Radio className="mx-auto mb-4 text-cyan-300" size={24} />
+          <h1 className="text-xl font-semibold">Esperando al director</h1>
+          <p className="mt-2 text-sm text-slate-300">
+            {isRealtimeConnected ? 'Elige tu nombre cuando el director publique el elenco.' : 'Conectando con la sala…'}
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <div className="studio-dancer flex flex-col h-dvh w-full overflow-hidden bg-slate-950 text-slate-100 select-none">
       {/* 1. CABECERA DEDICADA PARA EL CELULAR DEL BAILARÍN */}

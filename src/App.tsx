@@ -76,6 +76,10 @@ export const App: React.FC = () => {
   const [studioBrand, setStudioBrand] = useState(readStudioBrand);
   // Inicialización de proyecto y sesión desde localStorage o demo
   const [project, setProject] = useState<ChoreoProject>(() => {
+    const invitation = new URLSearchParams(window.location.search);
+    if (invitation.get('mode') === 'dancer' && invitation.get('room')?.startsWith('PILOT-')) {
+      return { ...createBlankProject('Esperando al director'), dancers: [], formations: [], beats: [] };
+    }
     const savedSession = loadSessionFromLocalStorage();
     if (savedSession?.project) {
       return sanitizeProject(savedSession.project);
@@ -127,7 +131,11 @@ export const App: React.FC = () => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const r = params.get('room');
-      if (r) return r.toUpperCase();
+      if (r) return r.trim().toUpperCase();
+      try {
+        const saved = localStorage.getItem('choreosync.publicRoom');
+        if (window.location.protocol === 'https:' && saved && /^PILOT-[A-F0-9]{32}$/.test(saved)) return saved;
+      } catch {}
     }
     return 'SALA-CHOREO-1';
   });
@@ -227,12 +235,19 @@ export const App: React.FC = () => {
     });
   }, [roomId, selectedFormationId]);
 
+  useEffect(() => realtimeManager.onDirectorStatus((status) => {
+    if (status === 'authorized' && viewModeRef.current === 'choreographer') {
+      broadcastFullState(projectRef.current);
+    }
+  }), [broadcastFullState]);
+
   // Sincronización en tiempo real inicial y manejo de eventos
   useEffect(() => {
     realtimeManager.setRoomId(roomId);
     realtimeManager.connectWebSocket();
 
     const unsubscribe = realtimeManager.subscribe((payload) => {
+      if (viewModeRef.current === 'choreographer' && realtimeManager.isProtectedRoom()) return;
       if (payload.type === 'SYNC_TIME' || payload.type === 'PLAY_STATE') {
         setCurrentTimeMs(payload.currentTimeMs);
         currentTimeMsRef.current = payload.currentTimeMs;
@@ -1762,6 +1777,9 @@ export const App: React.FC = () => {
         onRoomIdChange={(newRoom) => {
           setRoomId(newRoom);
           realtimeManager.setRoomId(newRoom);
+          if (/^PILOT-[A-F0-9]{32}$/.test(newRoom)) {
+            try { localStorage.setItem('choreosync.publicRoom', newRoom); } catch {}
+          }
         }}
       />
 

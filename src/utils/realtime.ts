@@ -2,6 +2,7 @@ import QRCode from 'qrcode';
 import { RealtimeSyncPayload } from '../types/choreo';
 
 export type RealtimeListener = (payload: RealtimeSyncPayload) => void;
+export type DirectorStatus = 'idle' | 'connecting' | 'authorized' | 'invalid' | 'occupied';
 export type ConnectionListener = (isConnected: boolean) => void;
 
 class RealtimeSyncManager {
@@ -11,6 +12,9 @@ class RealtimeSyncManager {
   private connectionListeners: Set<ConnectionListener> = new Set();
   public roomId: string = 'SALA-CHOREO-1';
   public senderId: string = 'client_' + Math.random().toString(36).slice(2, 8);
+  private directorKey = '';
+  private directorStatus: DirectorStatus = 'idle';
+  private directorListeners = new Set<(status: DirectorStatus) => void>();
   private isConnectedWs = false;
   private reconnectTimer: any = null;
   private pendingQueue: RealtimeSyncPayload[] = [];
@@ -31,7 +35,7 @@ class RealtimeSyncManager {
 
       this.candidateUrls = [
         `${wsProtocol}//${host}/ws`,            // 1. Integrado en Vite/Express (mismo puerto 5173)
-        `ws://${hostname}:8080`,               // 2. Servidor standalone en puerto 8080
+        ...(!isHttps ? [`ws://${hostname}:8080`] : []),
       ];
     } else {
       this.candidateUrls = ['ws://localhost:5173/ws', 'ws://localhost:8080'];
@@ -43,7 +47,7 @@ class RealtimeSyncManager {
       try {
         this.broadcastChannel = new BroadcastChannel('choreosync_live_channel');
         this.broadcastChannel.onmessage = (event) => {
-          if (event.data && event.data.roomId === this.roomId && event.data.senderId !== this.senderId) {
+          if (!this.isProtectedRoom() && event.data && event.data.roomId === this.roomId && event.data.senderId !== this.senderId) {
             this.notifyListeners(event.data);
           }
         };
@@ -87,6 +91,8 @@ class RealtimeSyncManager {
           this.ws?.send(JSON.stringify(joinPayload));
         } catch {}
 
+        this.authenticateDirector();
+
         // 2. Solicitar sincronización inmediata del estado actual
         const reqPayload: RealtimeSyncPayload = {
           type: 'REQUEST_SYNC',
@@ -113,7 +119,15 @@ class RealtimeSyncManager {
 
       this.ws.onmessage = (event) => {
         try {
-          const payload: RealtimeSyncPayload = JSON.parse(event.data);
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'DIRECTOR_STATUS') {
+            if (payload.roomId === this.roomId &&
+                ['authorized', 'invalid', 'occupied'].includes(payload.status)) {
+              if (payload.status !== 'authorized') this.directorKey = '';
+              this.setDirectorStatus(payload.status);
+            }
+            return;
+          }
           if (payload.roomId === this.roomId && payload.senderId !== this.senderId) {
             this.notifyListeners(payload);
           }
@@ -128,6 +142,7 @@ class RealtimeSyncManager {
       };
 
       this.ws.onclose = () => {
+        if (this.directorKey) this.setDirectorStatus('connecting');
         this.isConnectedWs = false;
         this.notifyConnectionListeners(false);
 
@@ -151,7 +166,11 @@ class RealtimeSyncManager {
   }
 
   public setRoomId(roomId: string) {
-    this.roomId = roomId.trim().toUpperCase();
+    const nextRoom = roomId.trim().toUpperCase();
+    if (nextRoom === this.roomId) return;
+    this.roomId = nextRoom;
+    this.pendingQueue = [];
+    if (this.directorKey) this.setDirectorStatus('connecting');
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.broadcast({
         type: 'JOIN_ROOM',
@@ -162,6 +181,7 @@ class RealtimeSyncManager {
         isPlaying: false,
         playbackRate: 1,
       });
+      this.authenticateDirector();
       this.broadcast({
         type: 'REQUEST_SYNC',
         roomId: this.roomId,
@@ -172,6 +192,34 @@ class RealtimeSyncManager {
         playbackRate: 1,
       });
     }
+  }
+
+  public isProtectedRoom() {
+    return /^PILOT-[A-F0-9]{32}$/.test(this.roomId);
+  }
+
+  public claimDirector(key: string) {
+    this.directorKey = key;
+    this.setDirectorStatus('connecting');
+    this.connectWebSocket();
+    this.authenticateDirector();
+  }
+
+  private authenticateDirector() {
+    if (this.isProtectedRoom() && this.directorKey && this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'DIRECTOR_AUTH', roomId: this.roomId, key: this.directorKey }));
+    }
+  }
+
+  public onDirectorStatus(listener: (status: DirectorStatus) => void) {
+    this.directorListeners.add(listener);
+    listener(this.directorStatus);
+    return () => { this.directorListeners.delete(listener); };
+  }
+
+  private setDirectorStatus(status: DirectorStatus) {
+    this.directorStatus = status;
+    this.directorListeners.forEach((listener) => listener(status));
   }
 
   public subscribe(listener: RealtimeListener): () => void {
@@ -208,12 +256,14 @@ class RealtimeSyncManager {
   }
 
   public broadcast(payload: RealtimeSyncPayload) {
+    if (this.isProtectedRoom() && this.directorStatus !== 'authorized' &&
+        payload.type !== 'JOIN_ROOM' && payload.type !== 'REQUEST_SYNC') return;
     payload.senderId = this.senderId;
     payload.roomId = this.roomId;
     payload.timestamp = Date.now();
 
     // 1. BroadcastChannel en la misma máquina
-    if (this.broadcastChannel) {
+    if (!this.isProtectedRoom() && this.broadcastChannel) {
       try {
         this.broadcastChannel.postMessage(payload);
       } catch (e) {
@@ -234,7 +284,7 @@ class RealtimeSyncManager {
       if (payload.type === 'FULL_STATE') {
         this.pendingQueue = this.pendingQueue.filter((p) => p.type !== 'FULL_STATE');
       }
-      this.pendingQueue.push(payload);
+      this.pendingQueue = [...this.pendingQueue.slice(-7), payload];
       // Asegurarse de que el socket intente conectarse
       this.connectWebSocket();
     }

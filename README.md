@@ -87,3 +87,22 @@ El servidor mostrará la IP local de tu computadora en la red Wi-Fi (ejemplo: `h
    - El bailarín selecciona su ficha para resaltarla y activar el **Modo Espejo 180°**, que invierte el escenario para ver su derecha e izquierda reales sobre el escenario.
 6. **Exportación e Importación:**
    - Guarda y comparte proyectos completos en formato `.json` o mantén tus cambios respaldados con autoguardado en `localStorage`.
+
+## Piloto en internet con Render
+
+En Render, crea un Blueprint desde este repositorio y la rama `main`. El
+archivo `render.yaml` configura el servicio Node, la comprobación de salud y
+una clave de director generada por Render. Copia esa clave desde **Environment**
+de tu servicio y guárdala en privado. En la URL pública de Render, abre
+**Sala en vivo**, introduce la clave y pulsa **Dirigir ensayo**.
+
+Comparte solo el QR o el enlace de bailarín. La invitación se conserva en el
+navegador del director y se puede reutilizar mientras conserve la misma URL e
+identificador de sala. El servidor activa un único director por sala y mantiene
+el último estado en memoria durante el ensayo. Si el servicio se reinicia, el
+director debe volver a publicar su proyecto desde el estudio. Conserva una
+copia `.choreo` con audio para recuperar el ensayo desde otra computadora.
+
+Antes de una competencia, abre el servicio y ensaya con un teléfono en datos
+móviles. Comprueba la entrada tardía, la pausa y una reconexión. El plan gratuito
+puede entrar en reposo por inactividad.
